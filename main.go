@@ -1,0 +1,56 @@
+package main
+
+import (
+	"athariqk/gopgsync/logrepl"
+	"athariqk/gopgsync/syncers"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/joho/godotenv"
+	"github.com/meilisearch/meilisearch-go"
+)
+
+func main() {
+	env := os.Getenv("GOPGSYNC_ENV")
+	if env == "" {
+		env = "development"
+	}
+
+	godotenv.Load(".env." + env + ".local")
+	if env != "test" {
+		godotenv.Load(".env.local")
+	}
+	godotenv.Load(".env." + env)
+	godotenv.Load() // The Original .env
+
+	log.Println("Environment:", env)
+
+	outputPlugin := os.Getenv("OUTPUT_PLUGIN")
+	connectionString := os.Getenv("PGSQL_CONNECTION_STRING")
+	pubName := os.Getenv("PGSQL_PUB_NAME")
+	slotName := os.Getenv("PGSQL_REPL_SLOT_NAME")
+	standbyMessageTimeout, err := strconv.Atoi(os.Getenv("PGSQL_STANDBY_MESSAGE_TIMEOUT"))
+	if err != nil {
+		standbyMessageTimeout = 10
+	}
+
+	meiliSyncer := syncers.NewMeiliSyncer(
+		meilisearch.ClientConfig{
+			Host:   os.Getenv("MS_API_URL"),
+			APIKey: os.Getenv("MS_API_KEY"),
+		}) // TODO: more options
+
+	replicator := logrepl.LogicalReplicator{
+		OutputPlugin:          outputPlugin,
+		ConnectionString:      connectionString,
+		PublicationName:       pubName,
+		SlotName:              slotName,
+		StandbyMessageTimeout: time.Second * time.Duration(standbyMessageTimeout),
+		Syncer:                meiliSyncer,
+		Schema:                logrepl.NewSchema("schema.yaml"),
+	}
+
+	replicator.Run()
+}
