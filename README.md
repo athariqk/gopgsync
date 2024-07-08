@@ -44,36 +44,36 @@ nodes:
           ...
 ```
 
-## `nodes`
+### `nodes`
 
 An object node describing the search engine document. Root-level tables lives here.
 
-## `index`
+### `index`
 
 An optional search engine index (defaults to database name)
 
-## `children`
+### `children`
 
 An optional list of child nodes if any. This has the same structure as a parent node. Also defines relationship.
 
-## `sync`
+### `sync`
 
 Specifies how the table should be synchronized.
 - `none`: don't sync this table altogether
 - `init`: only sync this table on start-up (for populating the search engine db)
 - `all`: sync this table using PostgreSQL's logical replication
 
-## `columns`
+### `columns`
 
 An optional list of table columns to replicate (defaults to all).
 
-## `relationship`
+### `relationship`
 
 Describes the relationship between parent and child.
 - `type`: type can be `one_to_one` or `one_to_many` depending on the relationship type between parent and child
 - `fk`: specifies the foreign keys of the relationship
 
-## `transform`
+### `transform`
 
 List of table-level transform operators.
 - `rename`: renames `old_column` name to the specified `new_column` name
