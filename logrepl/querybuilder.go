@@ -2,6 +2,7 @@ package logrepl
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 
@@ -30,74 +31,164 @@ func NewQueryBuilder(pgConnectionString string, schema *Schema) *QueryBuilder {
 	}
 }
 
-func (q *QueryBuilder) ResolveRelationships(data DmlData) error {
-	query := q.SelectAndJoin(data.TableName)
+func (q *QueryBuilder) GetRows(
+	context context.Context,
+	table string,
+	columns ...string,
+) ([]*DmlData, error) {
+	query := q.Select(table, columns...)
+	result, err := q.pgConn.Exec(context, query).ReadAll()
+	if err != nil {
+		return nil, err
+	}
 
-	results, err := q.pgConn.Exec(context.Background(), query).ReadAll()
+	rows := []*DmlData{}
+	for _, row := range result[0].Rows {
+		fields := map[string]Field{}
+		for fieldIdx, field := range row {
+			fieldDesc := result[0].FieldDescriptions[fieldIdx]
+			decoded, err := q.decode(field, fieldDesc.DataTypeOID, fieldDesc.Format)
+			if err != nil {
+				return nil, err
+			}
+			fields[fmt.Sprintf("%s.%s", table, fieldDesc.Name)] = Field{
+				Content: decoded,
+				IsKey:   fieldDesc.Name == q.Schema.Nodes[table].PrimaryKey,
+			}
+		}
+		rows = append(rows, &DmlData{
+			TableName: table,
+			Fields:    fields,
+		})
+	}
+
+	return rows, nil
+}
+
+func (q *QueryBuilder) ResolveRelationships(
+	context context.Context,
+	data DmlData,
+) error {
+	node := q.Schema.Nodes[data.TableName]
+	pk := q.Schema.GetPrimaryKey(data).Content.(int64)
+	query := q.SelectRowWithRelationships(data.TableName, pk, node.Columns...)
+
+	results, err := q.pgConn.Exec(context, query).ReadAll()
 	if err != nil {
 		return err
 	}
 
-	for _, resultRow := range results[0].Rows {
-		for idx, fieldDesc := range results[0].FieldDescriptions {
-			fieldData := resultRow[idx]
-			decoded, err := q.decode(fieldData, fieldDesc.DataTypeOID, fieldDesc.Format)
-			if err != nil {
-				return err
-			}
-			(*data.Values)[fieldDesc.Name] = Column{
-				Data: decoded,
-			}
+	row := results[0].Rows[0] // only one row is returned
+	for idx, fieldDesc := range results[0].FieldDescriptions {
+		fieldData := row[idx]
+		decoded, err := q.decode(fieldData, fieldDesc.DataTypeOID, fieldDesc.Format)
+		if err != nil {
+			return err
+		}
+
+		// shouldn't be a problem performance-wise since there'll be only one row...
+		getTableName, err := q.pgConn.Exec(context, fmt.Sprintf(
+			"select relname from pg_class where oid=%v", fieldDesc.TableOID)).ReadAll()
+		if err != nil {
+			return err
+		}
+
+		fieldTableName, err := q.decode(
+			getTableName[0].Rows[0][0],
+			getTableName[0].FieldDescriptions[0].DataTypeOID,
+			getTableName[0].FieldDescriptions[0].Format)
+		if err != nil {
+			return err
+		}
+
+		fieldName := fmt.Sprintf("%s.%s", fieldTableName, fieldDesc.Name)
+		data.Fields[fieldName] = Field{
+			Content: decoded,
+			IsKey:   data.Fields[fieldDesc.Name].IsKey,
 		}
 	}
 
 	return nil
 }
 
-func (q *QueryBuilder) SelectAndJoin(tableName string) string {
-	table := q.Schema.Sync[tableName]
+func (q *QueryBuilder) Select(table string, columns ...string) string {
+	query := strings.Builder{}
+
+	if len(columns) <= 0 {
+		log.Fatalln("No column specified")
+	}
+
+	query.WriteString("SELECT ")
+	for idx, column := range columns {
+		if idx > 0 {
+			query.WriteString(", ")
+		}
+		query.WriteString(column)
+	}
+	query.WriteString(" FROM ")
+	query.WriteString(table)
+
+	return query.String()
+}
+
+func (q *QueryBuilder) SelectWithRelationships(table string, columns ...string) string {
+	query := strings.Builder{}
+
+	node := q.Schema.Nodes[table]
+	columns = append(columns, q.ListChildColumns(table, node)...)
+	query.WriteString(q.Select(table, columns...))
+	query.WriteString(" ")
+	query.WriteString(q.JoinChildren(table, node))
+
+	return query.String()
+}
+
+func (q *QueryBuilder) SelectRowWithRelationships(table string, id int64, columns ...string) string {
 
 	query := strings.Builder{}
 
-	query.WriteString("SELECT ")
+	query.WriteString(q.SelectWithRelationships(table, columns...))
+	query.WriteString(fmt.Sprintf(" WHERE %s.%s = %v ",
+		table,
+		q.Schema.Nodes[table].PrimaryKey,
+		id))
+
+	return query.String()
+}
+
+func (q *QueryBuilder) ListChildColumns(table string, node Node) []string {
+	columns := []string{}
+
+	for childTable, childNode := range node.Children {
+		columns = append(columns, childNode.Columns...)
+		columns = append(columns, q.ListChildColumns(childTable, childNode)...)
+	}
+
+	return columns
+}
+
+func (q *QueryBuilder) JoinChildren(table string, node Node) string {
+	query := strings.Builder{}
 	idx := 0
-	for _, detail := range table.Relationships {
-		for column := range detail.Columns {
-			if idx > 0 {
-				query.WriteString(", ")
-			}
-			query.WriteString(detail.Table)
-			query.WriteString(".")
-			query.WriteString(column)
-			for transformType, transforms := range detail.Transform {
-				switch transformType {
-				case "rename":
-					to := transforms[column]
-					query.WriteString(" AS ")
-					query.WriteString(to)
-				}
-			}
-			idx++
+	for name, node := range node.Children {
+		if node.Relationship.Type == "" || node.Relationship.ForeignKey.Parent == "" {
+			continue
 		}
+
+		if idx > 0 {
+			query.WriteString(" ")
+		}
+
+		query.WriteString(fmt.Sprintf("JOIN %s ON %s.%s = %s.%s",
+			name,
+			table,
+			node.Relationship.ForeignKey.Parent,
+			name,
+			node.Relationship.ForeignKey.Child))
+
+		query.WriteString(q.JoinChildren(name, node))
+		idx++
 	}
-
-	query.WriteString(" FROM ")
-	query.WriteString(tableName)
-
-	for _, rel := range table.Relationships {
-		query.WriteString(" JOIN ")
-		query.WriteString(rel.Table)
-		query.WriteString(" ON ")
-		query.WriteString(tableName)
-		query.WriteString(".")
-		query.WriteString(rel.Key)
-		query.WriteString("=")
-		query.WriteString(rel.Table)
-		query.WriteString(".")
-		query.WriteString(rel.PrimaryKey)
-	}
-
-	query.WriteString(";")
 
 	return query.String()
 }
@@ -106,5 +197,5 @@ func (q *QueryBuilder) decode(data []byte, dataType uint32, format int16) (inter
 	if dt, ok := q.typeMap.TypeForOID(dataType); ok {
 		return dt.Codec.DecodeValue(q.typeMap, dataType, format, data)
 	}
-	return data, nil
+	return string(data), nil
 }

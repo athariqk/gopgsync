@@ -1,46 +1,33 @@
 package logrepl
 
-import "github.com/jackc/pglogrepl"
+import "strings"
 
-type ColumnMap map[string]Column
+type Field struct {
+	Content interface{}
+	IsKey   bool
+}
 
-func (c *ColumnMap) GetKeyNames() *[]string {
-	result := []string{}
-	for name, value := range *c {
-		if value.IsKey {
-			result = append(result, name)
+// Flattens field map into basic column names (<table>.<field>) with plain field values
+func Flatten(columns map[string]Field, onlyKey bool) map[string]interface{} {
+	row := map[string]interface{}{}
+	for name, field := range columns {
+		if onlyKey && !field.IsKey {
+			continue
 		}
-	}
-	return &result
-}
-
-func (c *ColumnMap) GetKeys() *map[string]interface{} {
-	result := map[string]interface{}{}
-	for name, value := range *c {
-		if value.IsKey {
-			result[name] = value.Data
+		splits := strings.Split(name, ".")
+		if len(splits) == 2 {
+			name = splits[1]
 		}
+		row[name] = field.Content
 	}
-	return &result
-}
-
-func (c *ColumnMap) Flatten() *map[string]interface{} {
-	result := map[string]interface{}{}
-	for name, value := range *c {
-		result[name] = value.Data
-	}
-	return &result
-}
-
-type Column struct {
-	Data  interface{}
-	IsKey bool
+	return row
 }
 
 type Syncer interface {
-	OnInit(queryBuilder *QueryBuilder) error
-	OnBegin(msg *pglogrepl.BeginMessage) error
+	OnInit(schema *Schema) error
+	TryFullReplication(rows []*DmlData) error
+	OnBegin(xid uint32) error
 	OnInsert(data DmlData) error
 	OnDelete(data DmlData) error
-	OnCommit(msg *pglogrepl.CommitMessage) error
+	OnCommit() error
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,6 +29,8 @@ type LogicalReplicator struct {
 	typeMap               *pgtype.Map
 	state                 *replicationState
 	slotCreationInfo      *pglogrepl.CreateReplicationSlotResult
+	queryBuilder          *QueryBuilder
+	transformer           *Transformer
 }
 
 type replicationState struct {
@@ -61,10 +64,12 @@ func (r *LogicalReplicator) Run() {
 	r.state = &replicationState{
 		relations: map[uint32]*pglogrepl.RelationMessageV2{},
 	}
+	r.queryBuilder = NewQueryBuilder(strings.Split(r.ConnectionString, "?")[0], r.Schema)
+	r.transformer = NewTransformer(r.Schema)
 
-	err = r.Syncer.OnInit(NewQueryBuilder(strings.Split(r.ConnectionString, "?")[0], r.Schema))
+	err = r.initSyncer()
 	if err != nil {
-		log.Fatal("Failed starting syncer: ", err)
+		log.Fatal("Failed init syncer: ", err)
 	}
 
 	err = r.initPublication()
@@ -176,6 +181,46 @@ func (r *LogicalReplicator) Run() {
 	}
 }
 
+func (r *LogicalReplicator) initSyncer() error {
+	err := r.Syncer.OnInit(r.Schema)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Trying to do first-time full replication of %v tables", len(r.Schema.Nodes))
+
+	for table, node := range r.Schema.Nodes {
+		if node.Sync == SYNC_NONE {
+			continue
+		}
+
+		log.Println("Replicating table:", table)
+
+		rows, err := r.queryBuilder.GetRows(context.Background(), table, node.PrimaryKey)
+		if err != nil {
+			return fmt.Errorf("querying rows: %s", err.Error())
+		}
+
+		for _, row := range rows {
+			err = r.queryBuilder.ResolveRelationships(context.Background(), *row)
+			if err != nil {
+				return fmt.Errorf("resolving relationships: %s", err.Error())
+			}
+			err = r.transformer.Transform(table, node, *row)
+			if err != nil {
+				return fmt.Errorf("transforming: %s", err.Error())
+			}
+		}
+
+		err = r.Syncer.TryFullReplication(rows)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (r *LogicalReplicator) initPublication() error {
 	result := r.conn.Exec(context.Background(), fmt.Sprintf("DROP PUBLICATION IF EXISTS %s;", r.PublicationName))
 	_, err := result.ReadAll()
@@ -185,12 +230,19 @@ func (r *LogicalReplicator) initPublication() error {
 
 	tableStr := strings.Builder{}
 	idx := 0
-	for table := range (*r.Schema).Sync {
+	for table, node := range r.Schema.Nodes {
+		if node.Sync == SYNC_NONE || node.Sync == SYNC_INIT {
+			continue
+		}
 		if idx > 0 {
 			tableStr.WriteString(", ")
 		}
 		tableStr.WriteString(table)
 		idx++
+	}
+
+	if idx <= 0 {
+		return errors.New("no publishable tables")
 	}
 
 	createPubQuery := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s;", r.PublicationName, tableStr.String())
@@ -264,10 +316,14 @@ func (r *LogicalReplicator) getSlotInfo() *replicationSlot {
 	row := result[0].Rows[0]
 	fieldDesc := result[0].FieldDescriptions
 	if len(row) == 4 {
-		active, _ := decodeTextColumnData(r.typeMap, row[0], fieldDesc[0].DataTypeOID)
-		restartLsn, _ := decodeTextColumnData(r.typeMap, row[1], fieldDesc[1].DataTypeOID)
-		latestFlushedLsn, _ := decodeTextColumnData(r.typeMap, row[2], fieldDesc[2].DataTypeOID)
-		catalogXmin, _ := decodeTextColumnData(r.typeMap, row[3], fieldDesc[3].DataTypeOID)
+		active, _ := r.queryBuilder.decode(
+			row[0], fieldDesc[0].DataTypeOID, fieldDesc[0].Format)
+		restartLsn, _ := r.queryBuilder.decode(
+			row[1], fieldDesc[1].DataTypeOID, fieldDesc[0].Format)
+		latestFlushedLsn, _ := r.queryBuilder.decode(
+			row[2], fieldDesc[2].DataTypeOID, fieldDesc[0].Format)
+		catalogXmin, _ := r.queryBuilder.decode(
+			row[3], fieldDesc[3].DataTypeOID, fieldDesc[0].Format)
 
 		parsedRestartLsn, _ := pglogrepl.ParseLSN(restartLsn.(string))
 		parsedLatestFlushedLsn, _ := pglogrepl.ParseLSN(latestFlushedLsn.(string))
@@ -332,12 +388,12 @@ func (r *LogicalReplicator) processMessage(xld pglogrepl.XLogData) (bool, error)
 		r.state.processMessages = true
 		r.state.currentTransactionLSN = logicalMsg.FinalLSN
 
-		err := r.Syncer.OnBegin(logicalMsg)
+		err := r.Syncer.OnBegin(logicalMsg.Xid)
 		if err != nil {
 			return false, err
 		}
 	case *pglogrepl.CommitMessage:
-		err := r.Syncer.OnCommit(logicalMsg)
+		err := r.Syncer.OnCommit()
 		if err != nil {
 			return false, err
 		}
@@ -387,11 +443,21 @@ func (r *LogicalReplicator) handleInsert(logicalMsg *pglogrepl.InsertMessageV2) 
 		log.Fatalf("unknown relation ID %d", logicalMsg.RelationID)
 	}
 
-	err := r.Syncer.OnInsert(DmlData{
+	data := DmlData{
 		TableName: rel.RelationName,
-		Values:    r.collectFields(&logicalMsg.Tuple.Columns, rel),
-	})
+		Fields:    r.collectFields(logicalMsg.Tuple.Columns, rel),
+	}
 
+	err := r.queryBuilder.ResolveRelationships(context.Background(), data)
+	if err != nil {
+		return false, err
+	}
+	err = r.transformer.Transform(rel.RelationName, r.Schema.Nodes[data.TableName], data)
+	if err != nil {
+		return false, err
+	}
+
+	err = r.Syncer.OnInsert(data)
 	return false, err
 }
 
@@ -401,49 +467,53 @@ func (r *LogicalReplicator) handleDelete(logicalMsg *pglogrepl.DeleteMessageV2) 
 		log.Fatalf("unknown relation ID %d", logicalMsg.RelationID)
 	}
 
-	err := r.Syncer.OnDelete(DmlData{
+	data := DmlData{
 		TableName: rel.RelationName,
-		Values:    r.collectFields(&logicalMsg.OldTuple.Columns, rel),
-	})
+		Fields:    r.collectFields(logicalMsg.OldTuple.Columns, rel),
+	}
 
+	err := r.Syncer.OnDelete(data)
 	return false, err
 }
 
 func (r *LogicalReplicator) collectFields(
-	columns *[]*pglogrepl.TupleDataColumn,
+	columns []*pglogrepl.TupleDataColumn,
 	relation *pglogrepl.RelationMessageV2,
-) *ColumnMap {
-	values := ColumnMap{}
-	for idx, col := range *columns {
-		colName := relation.Columns[idx].Name
+) map[string]Field {
+	fields := map[string]Field{}
+	for idx, column := range columns {
+		columnName := relation.Columns[idx].Name
+
+		table := r.Schema.Nodes[relation.RelationName]
+		max := len(table.Columns)
+		foundIdx := sort.Search(max, func(i int) bool {
+			return table.Columns[i] == columnName
+		})
+
+		// Check if this column is a key, if not then don't skip it as it will be important for later use
 		isKey := relation.Columns[idx].Flags == 1
-		_, ok := r.Schema.Sync[relation.RelationName].Columns[colName]
-		if !ok && !isKey {
+		if foundIdx == max && !isKey {
 			continue
 		}
-		switch col.DataType {
+
+		fullyQualifiedColumnName := fmt.Sprintf("%s.%s", relation.RelationName, columnName)
+		switch column.DataType {
 		case 'n': // null
-			values[colName] = Column{}
+			fields[fullyQualifiedColumnName] = Field{}
 		case 'u': // unchanged toast
 			// This TOAST value was not changed. TOAST values are not stored in the tuple,
 			// and logical replication doesn't want to spend a disk read to fetch its value for you.
 		case 't': //text
-			val, err := decodeTextColumnData(r.typeMap, col.Data, relation.Columns[idx].DataType)
+			decoded, err := r.queryBuilder.decode(column.Data, relation.Columns[idx].DataType, pgtype.TextFormatCode)
 			if err != nil {
 				log.Fatalln("error decoding column data:", err)
 			}
-			values[colName] = Column{
-				Data:  val,
-				IsKey: isKey,
+			fields[fullyQualifiedColumnName] = Field{
+				Content: decoded,
+				IsKey:   isKey,
 			}
 		}
 	}
-	return &values
-}
 
-func decodeTextColumnData(mi *pgtype.Map, data []byte, dataType uint32) (interface{}, error) {
-	if dt, ok := mi.TypeForOID(dataType); ok {
-		return dt.Codec.DecodeValue(mi, dataType, pgtype.TextFormatCode, data)
-	}
-	return string(data), nil
+	return fields
 }

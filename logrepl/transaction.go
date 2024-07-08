@@ -7,7 +7,8 @@ import (
 
 type DmlData struct {
 	TableName string
-	Values    *ColumnMap
+	// NOTE: all field names MUST BE a fully qualified name!
+	Fields map[string]Field
 }
 
 type SQLCommandType uint8

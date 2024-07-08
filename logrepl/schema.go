@@ -1,6 +1,7 @@
 package logrepl
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -8,23 +9,34 @@ import (
 )
 
 type Relationship struct {
-	Key        string
-	Table      string
-	PrimaryKey string `yaml:"primaryKey"`
-	Columns    map[string]string
-	Transform  map[string]map[string]string
+	Type       string
+	ForeignKey struct {
+		Child  string
+		Parent string
+	} `yaml:"fk"`
 }
 
-type Table struct {
-	Relationships []Relationship
-	Index         string
-	PrimaryKey    string `yaml:"primaryKey"`
-	Columns       map[string]string
-	Transform     map[string]map[string]string
+type SyncMode string
+
+const (
+	SYNC_NONE SyncMode = "none"
+	SYNC_INIT SyncMode = "init"
+	SYNC_ALL  SyncMode = "all"
+)
+
+type Node struct {
+	Relationship Relationship
+	Index        string
+	PrimaryKey   string `yaml:"pk"`
+	Columns      []string
+	Transform    map[string]interface{}
+	Children     map[string]Node
+	Parent       *Node
+	Sync         SyncMode
 }
 
 type Schema struct {
-	Sync map[string]Table
+	Nodes map[string]Node
 }
 
 func NewSchema(filePath string) *Schema {
@@ -39,29 +51,35 @@ func NewSchema(filePath string) *Schema {
 		log.Fatal("Failed parsing schema.yaml: ", err)
 	}
 
-	schema.normalizeFields()
+	schema.init(schema.Nodes)
 
 	return schema
 }
 
-func (s *Schema) normalizeFields() {
-	newTables := map[string]Table{}
-	for name, table := range s.Sync {
-		if table.Index == "" {
-			table.Index = name
+func (q *Schema) GetPrimaryKey(data DmlData) Field {
+	return data.Fields[fmt.Sprintf("%s.%s", data.TableName, q.Nodes[data.TableName].PrimaryKey)]
+}
+
+func (s *Schema) init(nodes map[string]Node) {
+	for name, node := range nodes {
+		if node.Sync == "" {
+			node.Sync = SYNC_ALL
 		}
-		if table.PrimaryKey == "" {
-			table.PrimaryKey = "id"
+		if node.Index == "" {
+			node.Index = name
 		}
-		newRels := []Relationship{}
-		for _, rel := range table.Relationships {
-			if rel.PrimaryKey == "" {
-				rel.PrimaryKey = "id"
-			}
-			newRels = append(newRels, rel)
+		if node.PrimaryKey == "" {
+			node.PrimaryKey = "id"
 		}
-		table.Relationships = newRels
-		newTables[name] = table
+		if node.Relationship.ForeignKey.Child == "" {
+			node.Relationship.ForeignKey.Child = node.PrimaryKey
+		}
+		if node.Relationship.ForeignKey.Parent == "" {
+			node.Relationship.ForeignKey.Parent = fmt.Sprintf("%s_id", name)
+		}
+
+		nodes[name] = node
+
+		s.init(node.Children)
 	}
-	s.Sync = newTables
 }
