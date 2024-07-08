@@ -1,13 +1,13 @@
 package main
 
 import (
-	"athariqk/gopgsync/logrepl"
-	"athariqk/gopgsync/syncers"
 	"log"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/athariqk/gopgsync/logrepl"
+	"github.com/athariqk/gopgsync/syncers"
 	"github.com/joho/godotenv"
 	"github.com/meilisearch/meilisearch-go"
 )

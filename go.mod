@@ -1,4 +1,4 @@
-module athariqk/gopgsync
+module github.com/athariqk/gopgsync
 
 go 1.21.6
 

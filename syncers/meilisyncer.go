@@ -1,11 +1,11 @@
 package syncers
 
 import (
-	"athariqk/gopgsync/logrepl"
 	"errors"
 	"fmt"
 	"log"
 
+	"github.com/athariqk/gopgsync/logrepl"
 	"github.com/meilisearch/meilisearch-go"
 )
 
