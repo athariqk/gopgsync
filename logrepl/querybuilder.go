@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -52,8 +53,9 @@ func (q *QueryBuilder) GetRows(
 				return nil, err
 			}
 			fields[fmt.Sprintf("%s.%s", table, fieldDesc.Name)] = Field{
-				Content: decoded,
-				IsKey:   fieldDesc.Name == q.Schema.Nodes[table].PrimaryKey,
+				Content:     decoded,
+				IsKey:       fieldDesc.Name == q.Schema.Nodes[table].PrimaryKey,
+				DataTypeOID: fieldDesc.DataTypeOID,
 			}
 		}
 		rows = append(rows, &DmlData{
@@ -103,8 +105,9 @@ func (q *QueryBuilder) ResolveRelationships(
 
 		fieldName := fmt.Sprintf("%s.%s", fieldTableName, fieldDesc.Name)
 		data.Fields[fieldName] = Field{
-			Content: decoded,
-			IsKey:   data.Fields[fieldDesc.Name].IsKey,
+			Content:     decoded,
+			IsKey:       data.Fields[fieldDesc.Name].IsKey,
+			DataTypeOID: fieldDesc.DataTypeOID,
 		}
 	}
 
@@ -195,7 +198,19 @@ func (q *QueryBuilder) JoinChildren(table string, node Node) string {
 
 func (q *QueryBuilder) decode(data []byte, dataType uint32, format int16) (interface{}, error) {
 	if dt, ok := q.typeMap.TypeForOID(dataType); ok {
-		return dt.Codec.DecodeValue(q.typeMap, dataType, format, data)
+		decoded, err := dt.Codec.DecodeValue(q.typeMap, dataType, format, data)
+		if err != nil {
+			return nil, err
+		}
+
+		switch dataType {
+		case pgtype.TimestampOID:
+			fallthrough
+		case pgtype.TimestamptzOID:
+			decoded = decoded.(time.Time).Unix()
+		}
+
+		return decoded, nil
 	}
 	return string(data), nil
 }

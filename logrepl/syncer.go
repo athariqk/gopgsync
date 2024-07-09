@@ -3,8 +3,9 @@ package logrepl
 import "strings"
 
 type Field struct {
-	Content interface{}
-	IsKey   bool
+	Content     interface{}
+	IsKey       bool
+	DataTypeOID uint32
 }
 
 // Flattens field map into basic column names (<table>.<field>) with plain field values

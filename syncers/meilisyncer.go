@@ -189,8 +189,8 @@ func (m *MeiliSyncer) handleDmlCommands(batch []*logrepl.DmlCommand) error {
 	switch batch[0].CmdType {
 	case logrepl.INSERT:
 		var documents []*map[string]interface{}
-		for _, x := range batch {
-			columns := logrepl.Flatten(x.Data.Fields, false)
+		for _, cmd := range batch {
+			columns := logrepl.Flatten(cmd.Data.Fields, false)
 			documents = append(documents, &columns)
 		}
 

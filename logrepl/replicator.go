@@ -505,8 +505,9 @@ func (r *LogicalReplicator) collectFields(
 				log.Fatalln("error decoding column data:", err)
 			}
 			fields[fullyQualifiedColumnName] = Field{
-				Content: decoded,
-				IsKey:   isKey,
+				Content:     decoded,
+				IsKey:       isKey,
+				DataTypeOID: relation.Columns[idx].DataType,
 			}
 		}
 	}
