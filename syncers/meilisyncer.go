@@ -88,7 +88,7 @@ func (m *MeiliSyncer) TryFullReplication(rows []*logrepl.DmlData) error {
 
 	node := m.schema.Nodes[rows[0].TableName]
 
-	_, err := m.client.CreateIndex(&meilisearch.IndexConfig{
+	taskInfo, err := m.client.CreateIndex(&meilisearch.IndexConfig{
 		Uid:        node.Index,
 		PrimaryKey: node.PrimaryKey,
 	})
@@ -96,19 +96,9 @@ func (m *MeiliSyncer) TryFullReplication(rows []*logrepl.DmlData) error {
 		return err
 	}
 
-	resp, err := m.client.GetIndex(node.Index)
+	_, err = m.client.WaitForTask(taskInfo.TaskUID)
 	if err != nil {
 		return err
-	}
-
-	stats, err := resp.GetStats()
-	if err != nil {
-		return err
-	}
-
-	if stats.NumberOfDocuments == int64(len(rows)) {
-		log.Println("[MeiliSyncer] number of documents is consistent with source, skipping full replication")
-		return nil
 	}
 
 	replicateRows := map[int64]map[string]logrepl.Field{}

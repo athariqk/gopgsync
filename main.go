@@ -42,6 +42,11 @@ func main() {
 			APIKey: os.Getenv("MS_API_KEY"),
 		}) // TODO: more options
 
+	mode := logrepl.STREAM_MODE
+	if len(os.Args) > 1 && os.Args[1] == "populate" {
+		mode = logrepl.POPULATE_MODE
+	}
+
 	replicator := logrepl.LogicalReplicator{
 		OutputPlugin:          outputPlugin,
 		ConnectionString:      connectionString,
@@ -50,6 +55,7 @@ func main() {
 		StandbyMessageTimeout: time.Second * time.Duration(standbyMessageTimeout),
 		Syncer:                meiliSyncer,
 		Schema:                logrepl.NewSchema("schema.yaml"),
+		Mode:                  mode,
 	}
 
 	replicator.Run()

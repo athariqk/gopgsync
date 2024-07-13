@@ -17,6 +17,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type ReplicationMode uint8
+
+const (
+	STREAM_MODE ReplicationMode = iota
+	POPULATE_MODE
+)
+
+func (m ReplicationMode) String() string {
+	switch m {
+	case STREAM_MODE:
+		return "Stream"
+	case POPULATE_MODE:
+		return "Full replication"
+	default:
+		return fmt.Sprintf("%d", int(m))
+	}
+}
+
 type LogicalReplicator struct {
 	Syncer                Syncer
 	OutputPlugin          string
@@ -31,6 +49,7 @@ type LogicalReplicator struct {
 	slotCreationInfo      *pglogrepl.CreateReplicationSlotResult
 	queryBuilder          *QueryBuilder
 	transformer           *Transformer
+	Mode                  ReplicationMode
 }
 
 type replicationState struct {
@@ -67,154 +86,25 @@ func (r *LogicalReplicator) Run() {
 	r.queryBuilder = NewQueryBuilder(strings.Split(r.ConnectionString, "?")[0], r.Schema)
 	r.transformer = NewTransformer(r.Schema)
 
-	err = r.initSyncer()
+	log.Println("Replication mode:", r.Mode)
+
+	err = r.Syncer.OnInit(r.Schema)
 	if err != nil {
 		log.Fatal("Failed init syncer: ", err)
 	}
 
-	err = r.initPublication()
-	if err != nil {
-		log.Fatalln("Failed init publication:", err)
-	}
-
-	err = r.initReplicationSlot()
-	if err != nil {
-		log.Fatalln("Failed init replication slot:", err)
-	}
-
-	pluginArguments := []string{
-		"proto_version '2'",
-		fmt.Sprintf("publication_names '%s'", r.PublicationName),
-		"messages 'true'",
-		"streaming 'true'",
-	}
-
-	log.Printf("Starting logical replication on slot %s at WAL location %s", r.SlotName, r.state.defaultStartingPos+1)
-	err = pglogrepl.StartReplication(
-		context.Background(),
-		conn,
-		r.SlotName,
-		r.state.defaultStartingPos,
-		pglogrepl.StartReplicationOptions{
-			PluginArgs: pluginArguments,
-		})
-	if err != nil {
-		log.Fatalln("StartReplication failed: ", err)
-	}
-
-	r.state.lastWrittenLSN = r.state.defaultStartingPos
-
-	for {
-		if time.Now().After(r.state.nextStandbyMessageDeadline) {
-			err = pglogrepl.SendStandbyStatusUpdate(context.Background(), conn, pglogrepl.StandbyStatusUpdate{
-				WALWritePosition: r.state.lastWrittenLSN + 1,
-				WALFlushPosition: r.state.lastWrittenLSN + 1,
-				WALApplyPosition: r.state.lastReceivedLSN + 1,
-			})
-			if err != nil {
-				log.Fatalln("SendStandbyStatusUpdate failed: ", err)
-			}
-			log.Printf("Sent Standby status message at %s\n", (r.state.lastWrittenLSN + 1).String())
-			r.state.nextStandbyMessageDeadline = time.Now().Add(r.StandbyMessageTimeout)
-		}
-
-		ctx, cancel := context.WithDeadline(context.Background(), r.state.nextStandbyMessageDeadline)
-		rawMsg, err := conn.ReceiveMessage(ctx)
-		cancel()
+	switch r.Mode {
+	case STREAM_MODE:
+		r.startStreaming()
+	case POPULATE_MODE:
+		err = r.startFullReplication()
 		if err != nil {
-			if pgconn.Timeout(err) {
-				continue
-			}
-			log.Fatalln("ReceiveMessage failed:", err)
+			log.Fatalln("Failed full replication:", err)
 		}
-
-		if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
-			log.Fatalf("received Postgres WAL error: %+v", errMsg)
-		}
-
-		msg, ok := rawMsg.(*pgproto3.CopyData)
-		if !ok {
-			log.Printf("Received unexpected message: %T\n", rawMsg)
-			continue
-		}
-
-		switch msg.Data[0] {
-		case pglogrepl.PrimaryKeepaliveMessageByteID:
-			pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
-			if err != nil {
-				log.Fatalln("ParsePrimaryKeepaliveMessage failed: ", err)
-			}
-			log.Println("Primary Keepalive Message =>", "ServerWALEnd:", pkm.ServerWALEnd, "ServerTime:", pkm.ServerTime, "ReplyRequested:", pkm.ReplyRequested)
-			if pkm.ServerWALEnd > r.state.lastReceivedLSN {
-				r.state.lastReceivedLSN = pkm.ServerWALEnd
-			}
-			if pkm.ReplyRequested {
-				r.state.nextStandbyMessageDeadline = time.Time{}
-			}
-
-		case pglogrepl.XLogDataByteID:
-			xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
-			if err != nil {
-				log.Fatalln("ParseXLogData failed: ", err)
-			}
-
-			log.Printf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s WALData:\n", xld.WALStart, xld.ServerWALEnd, xld.ServerTime)
-
-			committed, err := r.processMessage(xld)
-			if err != nil {
-				log.Println("Error processing message:", err)
-			}
-
-			if committed {
-				r.state.lastWrittenLSN = r.state.currentTransactionLSN
-				log.Printf("Writing LSN %s to file\n", r.state.lastWrittenLSN.String())
-				err := r.writeWALPosition(r.state.lastWrittenLSN)
-				if err != nil {
-					log.Println(err)
-				}
-			}
-		}
+		log.Println("Full replication finished")
+	default:
+		log.Println("No replication mode specified")
 	}
-}
-
-func (r *LogicalReplicator) initSyncer() error {
-	err := r.Syncer.OnInit(r.Schema)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("Trying to do first-time full replication of %v tables", len(r.Schema.Nodes))
-
-	for table, node := range r.Schema.Nodes {
-		if node.Sync == SYNC_NONE {
-			continue
-		}
-
-		log.Println("Replicating table:", table)
-
-		rows, err := r.queryBuilder.GetRows(context.Background(), table, node.PrimaryKey)
-		if err != nil {
-			return fmt.Errorf("querying rows: %s", err.Error())
-		}
-
-		for _, row := range rows {
-			err = r.queryBuilder.ResolveRelationships(context.Background(), *row)
-			if err != nil {
-				return fmt.Errorf("resolving relationships: %s", err.Error())
-			}
-			err = r.transformer.Transform(table, node, *row)
-			if err != nil {
-				return fmt.Errorf("transforming: %s", err.Error())
-			}
-		}
-
-		err = r.Syncer.TryFullReplication(rows)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 func (r *LogicalReplicator) initPublication() error {
@@ -513,4 +403,143 @@ func (r *LogicalReplicator) collectFields(
 	}
 
 	return fields
+}
+
+func (r *LogicalReplicator) startFullReplication() error {
+	for table, node := range r.Schema.Nodes {
+		if node.Sync == SYNC_NONE {
+			continue
+		}
+
+		log.Println("Replicating table:", table)
+
+		rows, err := r.queryBuilder.GetRows(context.Background(), table, node.PrimaryKey)
+		if err != nil {
+			return fmt.Errorf("querying rows: %s", err.Error())
+		}
+
+		for _, row := range rows {
+			err = r.queryBuilder.ResolveRelationships(context.Background(), *row)
+			if err != nil {
+				return fmt.Errorf("resolving relationships: %s", err.Error())
+			}
+			err = r.transformer.Transform(table, node, *row)
+			if err != nil {
+				return fmt.Errorf("transforming: %s", err.Error())
+			}
+		}
+
+		err = r.Syncer.TryFullReplication(rows)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *LogicalReplicator) startStreaming() {
+	err := r.initPublication()
+	if err != nil {
+		log.Fatalln("Failed init publication:", err)
+	}
+
+	err = r.initReplicationSlot()
+	if err != nil {
+		log.Fatalln("Failed init replication slot:", err)
+	}
+
+	pluginArguments := []string{
+		"proto_version '2'",
+		fmt.Sprintf("publication_names '%s'", r.PublicationName),
+		"messages 'true'",
+		"streaming 'true'",
+	}
+
+	log.Printf("Starting logical replication on slot %s at WAL location %s", r.SlotName, r.state.defaultStartingPos+1)
+	err = pglogrepl.StartReplication(
+		context.Background(),
+		r.conn,
+		r.SlotName,
+		r.state.defaultStartingPos,
+		pglogrepl.StartReplicationOptions{
+			PluginArgs: pluginArguments,
+		})
+	if err != nil {
+		log.Fatalln("StartReplication failed: ", err)
+	}
+
+	r.state.lastWrittenLSN = r.state.defaultStartingPos
+
+	for {
+		if time.Now().After(r.state.nextStandbyMessageDeadline) {
+			err = pglogrepl.SendStandbyStatusUpdate(context.Background(), r.conn, pglogrepl.StandbyStatusUpdate{
+				WALWritePosition: r.state.lastWrittenLSN + 1,
+				WALFlushPosition: r.state.lastWrittenLSN + 1,
+				WALApplyPosition: r.state.lastReceivedLSN + 1,
+			})
+			if err != nil {
+				log.Fatalln("SendStandbyStatusUpdate failed: ", err)
+			}
+			log.Printf("Sent Standby status message at %s\n", (r.state.lastWrittenLSN + 1).String())
+			r.state.nextStandbyMessageDeadline = time.Now().Add(r.StandbyMessageTimeout)
+		}
+
+		ctx, cancel := context.WithDeadline(context.Background(), r.state.nextStandbyMessageDeadline)
+		rawMsg, err := r.conn.ReceiveMessage(ctx)
+		cancel()
+		if err != nil {
+			if pgconn.Timeout(err) {
+				continue
+			}
+			log.Fatalln("ReceiveMessage failed:", err)
+		}
+
+		if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
+			log.Fatalf("received Postgres WAL error: %+v", errMsg)
+		}
+
+		msg, ok := rawMsg.(*pgproto3.CopyData)
+		if !ok {
+			log.Printf("Received unexpected message: %T\n", rawMsg)
+			continue
+		}
+
+		switch msg.Data[0] {
+		case pglogrepl.PrimaryKeepaliveMessageByteID:
+			pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
+			if err != nil {
+				log.Fatalln("ParsePrimaryKeepaliveMessage failed: ", err)
+			}
+			log.Println("Primary Keepalive Message =>", "ServerWALEnd:", pkm.ServerWALEnd, "ServerTime:", pkm.ServerTime, "ReplyRequested:", pkm.ReplyRequested)
+			if pkm.ServerWALEnd > r.state.lastReceivedLSN {
+				r.state.lastReceivedLSN = pkm.ServerWALEnd
+			}
+			if pkm.ReplyRequested {
+				r.state.nextStandbyMessageDeadline = time.Time{}
+			}
+
+		case pglogrepl.XLogDataByteID:
+			xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
+			if err != nil {
+				log.Fatalln("ParseXLogData failed: ", err)
+			}
+
+			log.Printf("XLogData => WALStart %s ServerWALEnd %s ServerTime %s WALData:\n", xld.WALStart, xld.ServerWALEnd, xld.ServerTime)
+
+			committed, err := r.processMessage(xld)
+			if err != nil {
+				log.Println("Error processing message:", err)
+			}
+
+			if committed {
+				r.state.lastWrittenLSN = r.state.currentTransactionLSN
+				log.Printf("Writing LSN %s to file\n", r.state.lastWrittenLSN.String())
+				err := r.writeWALPosition(r.state.lastWrittenLSN)
+				if err != nil {
+					log.Println(err)
+				}
+			}
+		}
+	}
 }
