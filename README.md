@@ -77,3 +77,13 @@ Describes the relationship between parent and child.
 
 List of table-level transform operators.
 - `rename`: renames `old_column` name to the specified `new_column` name
+
+## Command-line Arguments
+
+### stream
+
+Run gopgysnc in logical streaming replication protocol, this is the default replication mode.
+
+### full
+
+Fully replicates the schema to the target sink. Useful when you're trying to replicate for the first time and need to "populate" the target database.
