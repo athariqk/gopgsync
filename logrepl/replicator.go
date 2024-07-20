@@ -288,8 +288,7 @@ func (r *LogicalReplicator) processMessage(xld pglogrepl.XLogData) (bool, error)
 	case *pglogrepl.InsertMessageV2:
 		return r.handleInsert(logicalMsg)
 	case *pglogrepl.UpdateMessageV2:
-		// TODO: handle update
-		log.Println("TODO: handle update message")
+		return r.handleUpdate(logicalMsg)
 	case *pglogrepl.DeleteMessageV2:
 		return r.handleDelete(logicalMsg)
 	case *pglogrepl.TruncateMessageV2:
@@ -344,6 +343,30 @@ func (r *LogicalReplicator) handleInsert(logicalMsg *pglogrepl.InsertMessageV2) 
 	}
 
 	err = r.Syncer.OnInsert(data)
+	return false, err
+}
+
+func (r *LogicalReplicator) handleUpdate(logicalMsg *pglogrepl.UpdateMessageV2) (bool, error) {
+	rel, ok := r.state.relations[logicalMsg.RelationID]
+	if !ok {
+		log.Fatalf("unknown relation ID %d", logicalMsg.RelationID)
+	}
+
+	data := DmlData{
+		TableName: rel.RelationName,
+		Fields:    r.collectFields(logicalMsg.NewTuple.Columns, rel),
+	}
+
+	err := r.queryBuilder.ResolveRelationships(context.Background(), data)
+	if err != nil {
+		return false, err
+	}
+	err = r.transformer.Transform(rel.RelationName, r.Schema.Nodes[data.TableName], data)
+	if err != nil {
+		return false, err
+	}
+
+	err = r.Syncer.OnUpdate(data)
 	return false, err
 }
 

@@ -73,11 +73,15 @@ func (q *QueryBuilder) ResolveRelationships(
 ) error {
 	node := q.Schema.Nodes[data.TableName]
 	pk := q.Schema.GetPrimaryKey(data).Content.(int64)
-	query := q.SelectRowWithRelationships(data.TableName, pk, node.Columns...)
+	query := q.SelectRowIncludeReferences(data.TableName, pk, node.Columns...)
 
 	results, err := q.pgConn.Exec(context, query).ReadAll()
 	if err != nil {
 		return err
+	}
+
+	if len(results) <= 0 || len(results[0].Rows) <= 0 {
+		return nil
 	}
 
 	row := results[0].Rows[0] // only one row is returned
@@ -146,7 +150,7 @@ func (q *QueryBuilder) SelectWithRelationships(table string, columns ...string) 
 	return query.String()
 }
 
-func (q *QueryBuilder) SelectRowWithRelationships(table string, id int64, columns ...string) string {
+func (q *QueryBuilder) SelectRowIncludeReferences(table string, id int64, columns ...string) string {
 
 	query := strings.Builder{}
 

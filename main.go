@@ -43,7 +43,7 @@ func main() {
 		}) // TODO: more options
 
 	mode := logrepl.STREAM_MODE
-	if len(os.Args) > 1 && os.Args[1] == "populate" {
+	if len(os.Args) > 1 && os.Args[1] == "full" {
 		mode = logrepl.POPULATE_MODE
 	}
 

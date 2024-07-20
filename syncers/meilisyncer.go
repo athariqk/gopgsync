@@ -47,6 +47,14 @@ func (m *MeiliSyncer) OnInsert(data logrepl.DmlData) error {
 	return nil
 }
 
+func (m *MeiliSyncer) OnUpdate(data logrepl.DmlData) error {
+	m.currentTx.DmlCommandQueue().PushBack(&logrepl.DmlCommand{
+		CmdType: logrepl.UPDATE,
+		Data:    data,
+	})
+	return nil
+}
+
 func (m *MeiliSyncer) OnDelete(data logrepl.DmlData) error {
 	m.currentTx.DmlCommandQueue().PushBack(&logrepl.DmlCommand{
 		CmdType: logrepl.DELETE,
@@ -185,6 +193,20 @@ func (m *MeiliSyncer) handleDmlCommands(batch []*logrepl.DmlCommand) error {
 		}
 
 		resps, err := m.client.Index(table.Index).AddDocumentsInBatches(documents, 50, table.PrimaryKey)
+		if err != nil {
+			return err
+		}
+		for _, resp := range resps {
+			log.Printf("[MeiliSyncer] Batched Task UID: %v of Type: %s status: %s", resp.TaskUID, resp.Type, resp.Status)
+		}
+	case logrepl.UPDATE:
+		var documents []*map[string]interface{}
+		for _, cmd := range batch {
+			columns := logrepl.Flatten(cmd.Data.Fields, false)
+			documents = append(documents, &columns)
+		}
+
+		resps, err := m.client.Index(table.Index).UpdateDocumentsInBatches(documents, 50, table.PrimaryKey)
 		if err != nil {
 			return err
 		}

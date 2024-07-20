@@ -29,6 +29,7 @@ type Syncer interface {
 	TryFullReplication(rows []*DmlData) error
 	OnBegin(xid uint32) error
 	OnInsert(data DmlData) error
+	OnUpdate(data DmlData) error
 	OnDelete(data DmlData) error
 	OnCommit() error
 }
