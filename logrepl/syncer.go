@@ -1,15 +1,13 @@
 package logrepl
 
-import (
-	"github.com/athariqk/gopgsync/model"
-)
+import gopgsyncmodels "github.com/athariqk/gopgsync-models"
 
 type Syncer interface {
 	Init(schema *Schema) error
-	TryFullReplication(rows []*model.DmlData) error
+	TryFullReplication(rows []*gopgsyncmodels.DmlData) error
 	OnBegin(xid uint32) error
-	OnInsert(data model.DmlData) error
-	OnUpdate(data model.DmlData) error
-	OnDelete(data model.DmlData) error
+	OnInsert(data gopgsyncmodels.DmlData) error
+	OnUpdate(data gopgsyncmodels.DmlData) error
+	OnDelete(data gopgsyncmodels.DmlData) error
 	OnCommit() error
 }

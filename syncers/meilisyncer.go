@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log"
 
+	gopgsyncmodels "github.com/athariqk/gopgsync-models"
 	"github.com/athariqk/gopgsync/logrepl"
-	"github.com/athariqk/gopgsync/model"
 	"github.com/meilisearch/meilisearch-go"
 )
 
@@ -39,41 +39,41 @@ func (m *MeiliSyncer) OnBegin(xid uint32) error {
 	return nil
 }
 
-func (m *MeiliSyncer) OnInsert(data model.DmlData) error {
-	m.currentTx.DmlCommandQueue().PushBack(&model.DmlCommand{
-		CmdType: model.INSERT,
+func (m *MeiliSyncer) OnInsert(data gopgsyncmodels.DmlData) error {
+	m.currentTx.DmlCommandQueue().PushBack(&gopgsyncmodels.DmlCommand{
+		CmdType: gopgsyncmodels.INSERT,
 		Data:    data,
 	})
 	return nil
 }
 
-func (m *MeiliSyncer) OnUpdate(data model.DmlData) error {
-	m.currentTx.DmlCommandQueue().PushBack(&model.DmlCommand{
-		CmdType: model.UPDATE,
+func (m *MeiliSyncer) OnUpdate(data gopgsyncmodels.DmlData) error {
+	m.currentTx.DmlCommandQueue().PushBack(&gopgsyncmodels.DmlCommand{
+		CmdType: gopgsyncmodels.UPDATE,
 		Data:    data,
 	})
 	return nil
 }
 
-func (m *MeiliSyncer) OnDelete(data model.DmlData) error {
-	m.currentTx.DmlCommandQueue().PushBack(&model.DmlCommand{
-		CmdType: model.DELETE,
+func (m *MeiliSyncer) OnDelete(data gopgsyncmodels.DmlData) error {
+	m.currentTx.DmlCommandQueue().PushBack(&gopgsyncmodels.DmlCommand{
+		CmdType: gopgsyncmodels.DELETE,
 		Data:    data,
 	})
 	return nil
 }
 
 func (m *MeiliSyncer) OnCommit() error {
-	var batch []*model.DmlCommand
+	var batch []*gopgsyncmodels.DmlCommand
 	for m.currentTx.DmlCommandQueue().Len() > 0 {
 		e := m.currentTx.DmlCommandQueue().Front()
-		cmd, err := model.CastToDmlCmd(e)
+		cmd, err := gopgsyncmodels.CastToDmlCmd(e)
 		if err != nil {
 			return err
 		}
 
 		batch = append(batch, cmd)
-		nextCmd, _ := model.CastToDmlCmd(e.Next())
+		nextCmd, _ := gopgsyncmodels.CastToDmlCmd(e.Next())
 		if nextCmd == nil || nextCmd.CmdType != cmd.CmdType {
 			err = m.handleDmlCommands(batch)
 			if err != nil {
@@ -89,7 +89,7 @@ func (m *MeiliSyncer) OnCommit() error {
 	return nil
 }
 
-func (m *MeiliSyncer) TryFullReplication(rows []*model.DmlData) error {
+func (m *MeiliSyncer) TryFullReplication(rows []*gopgsyncmodels.DmlData) error {
 	if m.client == nil {
 		return errors.New("meilisearch client is null")
 	}
@@ -109,9 +109,9 @@ func (m *MeiliSyncer) TryFullReplication(rows []*model.DmlData) error {
 		return err
 	}
 
-	replicateRows := map[int64]map[string]model.Field{}
+	replicateRows := map[int64]map[string]gopgsyncmodels.Field{}
 	for _, row := range rows {
-		flattened := map[string]model.Field{}
+		flattened := map[string]gopgsyncmodels.Field{}
 		for name, field := range row.Fields {
 			flattened[name] = field
 		}
@@ -156,7 +156,7 @@ func (m *MeiliSyncer) TryFullReplication(rows []*model.DmlData) error {
 
 	// TODO: batching and concurrency
 	for _, replicateRow := range replicateRows {
-		err = m.OnInsert(model.DmlData{
+		err = m.OnInsert(gopgsyncmodels.DmlData{
 			TableName: rows[0].TableName,
 			Fields:    replicateRow,
 		})
@@ -173,7 +173,7 @@ func (m *MeiliSyncer) TryFullReplication(rows []*model.DmlData) error {
 	return nil
 }
 
-func (m *MeiliSyncer) handleDmlCommands(batch []*model.DmlCommand) error {
+func (m *MeiliSyncer) handleDmlCommands(batch []*gopgsyncmodels.DmlCommand) error {
 	if m.client == nil {
 		log.Fatal("[MeiliSyncer] Meilisearch client is null")
 	}
@@ -185,10 +185,10 @@ func (m *MeiliSyncer) handleDmlCommands(batch []*model.DmlCommand) error {
 	table := m.schema.Nodes[batch[0].Data.TableName]
 
 	switch batch[0].CmdType {
-	case model.INSERT:
+	case gopgsyncmodels.INSERT:
 		var documents []*map[string]interface{}
 		for _, cmd := range batch {
-			columns := model.Flatten(cmd.Data.Fields, false)
+			columns := gopgsyncmodels.Flatten(cmd.Data.Fields, false)
 			documents = append(documents, &columns)
 		}
 
@@ -199,10 +199,10 @@ func (m *MeiliSyncer) handleDmlCommands(batch []*model.DmlCommand) error {
 		for _, resp := range resps {
 			log.Printf("[MeiliSyncer] Batched Task UID: %v of Type: %s status: %s", resp.TaskUID, resp.Type, resp.Status)
 		}
-	case model.UPDATE:
+	case gopgsyncmodels.UPDATE:
 		var documents []*map[string]interface{}
 		for _, cmd := range batch {
-			columns := model.Flatten(cmd.Data.Fields, false)
+			columns := gopgsyncmodels.Flatten(cmd.Data.Fields, false)
 			documents = append(documents, &columns)
 		}
 
@@ -213,10 +213,10 @@ func (m *MeiliSyncer) handleDmlCommands(batch []*model.DmlCommand) error {
 		for _, resp := range resps {
 			log.Printf("[MeiliSyncer] Batched Task UID: %v of Type: %s status: %s", resp.TaskUID, resp.Type, resp.Status)
 		}
-	case model.DELETE:
+	case gopgsyncmodels.DELETE:
 		var refNumbers []string
 		for _, x := range batch {
-			keys := model.Flatten(x.Data.Fields, true)
+			keys := gopgsyncmodels.Flatten(x.Data.Fields, true)
 			refNumbers = append(refNumbers, fmt.Sprintf("%v", keys[table.PrimaryKey]))
 		}
 

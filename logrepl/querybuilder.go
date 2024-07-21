@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/athariqk/gopgsync/model"
+	gopgsyncmodel "github.com/athariqk/gopgsync-models"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -37,29 +37,29 @@ func (q *QueryBuilder) GetRows(
 	context context.Context,
 	table string,
 	columns ...string,
-) ([]*model.DmlData, error) {
+) ([]*gopgsyncmodel.DmlData, error) {
 	query := q.Select(table, columns...)
 	result, err := q.pgConn.Exec(context, query).ReadAll()
 	if err != nil {
 		return nil, err
 	}
 
-	rows := []*model.DmlData{}
+	rows := []*gopgsyncmodel.DmlData{}
 	for _, row := range result[0].Rows {
-		fields := map[string]model.Field{}
+		fields := map[string]gopgsyncmodel.Field{}
 		for fieldIdx, field := range row {
 			fieldDesc := result[0].FieldDescriptions[fieldIdx]
 			decoded, err := q.decode(field, fieldDesc.DataTypeOID, fieldDesc.Format)
 			if err != nil {
 				return nil, err
 			}
-			fields[fmt.Sprintf("%s.%s", table, fieldDesc.Name)] = model.Field{
+			fields[fmt.Sprintf("%s.%s", table, fieldDesc.Name)] = gopgsyncmodel.Field{
 				Content:     decoded,
 				IsKey:       fieldDesc.Name == q.Schema.Nodes[table].PrimaryKey,
 				DataTypeOID: fieldDesc.DataTypeOID,
 			}
 		}
-		rows = append(rows, &model.DmlData{
+		rows = append(rows, &gopgsyncmodel.DmlData{
 			TableName: table,
 			Fields:    fields,
 		})
@@ -70,7 +70,7 @@ func (q *QueryBuilder) GetRows(
 
 func (q *QueryBuilder) ResolveRelationships(
 	context context.Context,
-	data model.DmlData,
+	data gopgsyncmodel.DmlData,
 ) error {
 	node := q.Schema.Nodes[data.TableName]
 	pk := q.Schema.GetPrimaryKey(data).Content.(int64)
@@ -109,7 +109,7 @@ func (q *QueryBuilder) ResolveRelationships(
 		}
 
 		fieldName := fmt.Sprintf("%s.%s", fieldTableName, fieldDesc.Name)
-		data.Fields[fieldName] = model.Field{
+		data.Fields[fieldName] = gopgsyncmodel.Field{
 			Content:     decoded,
 			IsKey:       data.Fields[fieldDesc.Name].IsKey,
 			DataTypeOID: fieldDesc.DataTypeOID,
