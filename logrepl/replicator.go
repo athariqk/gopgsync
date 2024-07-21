@@ -88,7 +88,7 @@ func (r *LogicalReplicator) Run() {
 
 	log.Println("Replication mode:", r.Mode)
 
-	err = r.Syncer.OnInit(r.Schema)
+	err = r.Syncer.Init(r.Schema)
 	if err != nil {
 		log.Fatal("Failed init syncer: ", err)
 	}

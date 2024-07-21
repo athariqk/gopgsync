@@ -25,7 +25,7 @@ func Flatten(columns map[string]Field, onlyKey bool) map[string]interface{} {
 }
 
 type Syncer interface {
-	OnInit(schema *Schema) error
+	Init(schema *Schema) error
 	TryFullReplication(rows []*DmlData) error
 	OnBegin(xid uint32) error
 	OnInsert(data DmlData) error

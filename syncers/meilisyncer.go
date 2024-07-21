@@ -21,7 +21,7 @@ func NewMeiliSyncer(meilisearchConfig meilisearch.ClientConfig) *MeiliSyncer {
 	}
 }
 
-func (m *MeiliSyncer) OnInit(schema *logrepl.Schema) error {
+func (m *MeiliSyncer) Init(schema *logrepl.Schema) error {
 	m.schema = schema
 
 	resp, err := m.client.GetVersion()
