@@ -2,7 +2,8 @@ package logrepl
 
 import gopgsyncmodels "github.com/athariqk/gopgsync-models"
 
-type Syncer interface {
+type Publisher interface {
+	String() string
 	Init(schema *Schema) error
 	TryFullReplication(rows []*gopgsyncmodels.DmlData) error
 	OnBegin(xid uint32) error

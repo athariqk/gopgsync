@@ -6,14 +6,14 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/athariqk/gopgsync/logrepl"
-	"github.com/athariqk/gopgsync/syncers"
+	"github.com/athariqk/pgcdc/logrepl"
+	"github.com/athariqk/pgcdc/publishers"
 	"github.com/joho/godotenv"
 	"github.com/meilisearch/meilisearch-go"
 )
 
 func main() {
-	env := os.Getenv("GOPGSYNC_ENV")
+	env := os.Getenv("PGCDC_ENV")
 	if env == "" {
 		env = "development"
 	}
@@ -41,20 +41,13 @@ func main() {
 		mode = logrepl.POPULATE_MODE
 	}
 
-	var syncer logrepl.Syncer
-	wantSyncer := os.Getenv("SYNCER")
-	switch wantSyncer {
-	case "meilisyncer":
-		syncer = syncers.NewMeiliSyncer(meilisearch.ClientConfig{
+	pubs := []logrepl.Publisher{
+		publishers.NewMeiliSyncer(meilisearch.ClientConfig{
 			Host:   os.Getenv("MS_API_URL"),
-			APIKey: os.Getenv("MS_API_KEY"),
-		})
-	case "publisher":
-		fallthrough
-	default:
-		syncer = syncers.NewPublisher(
+			APIKey: os.Getenv("MS_API_KEY")}),
+		publishers.NewNsqPublisher(
 			os.Getenv("NSQD_INSTANCE_ADDRESS"),
-			os.Getenv("NSQD_INSTANCE_PORT"))
+			os.Getenv("NSQD_INSTANCE_PORT")),
 	}
 
 	replicator := logrepl.LogicalReplicator{
@@ -63,7 +56,7 @@ func main() {
 		PublicationName:       pubName,
 		SlotName:              slotName,
 		StandbyMessageTimeout: time.Second * time.Duration(standbyMessageTimeout),
-		Syncer:                syncer,
+		Publishers:            pubs,
 		Schema:                logrepl.NewSchema("schema.yaml"),
 		Mode:                  mode,
 	}

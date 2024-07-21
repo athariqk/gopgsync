@@ -21,7 +21,6 @@ type SyncMode string
 
 const (
 	SYNC_NONE SyncMode = "none"
-	SYNC_INIT SyncMode = "init"
 	SYNC_ALL  SyncMode = "all"
 )
 

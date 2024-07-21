@@ -37,7 +37,7 @@ func (m ReplicationMode) String() string {
 }
 
 type LogicalReplicator struct {
-	Syncer                Syncer
+	Publishers            []Publisher
 	OutputPlugin          string
 	ConnectionString      string
 	PublicationName       string
@@ -89,9 +89,11 @@ func (r *LogicalReplicator) Run() {
 
 	log.Println("Replication mode:", r.Mode)
 
-	err = r.Syncer.Init(r.Schema)
-	if err != nil {
-		log.Fatal("Failed init syncer: ", err)
+	for _, pub := range r.Publishers {
+		err = pub.Init(r.Schema)
+		if err != nil {
+			log.Fatal("Failed init publisher: ", pub.String(), ", error: ", err)
+		}
 	}
 
 	switch r.Mode {
@@ -118,7 +120,7 @@ func (r *LogicalReplicator) initPublication() error {
 	tableStr := strings.Builder{}
 	idx := 0
 	for table, node := range r.Schema.Nodes {
-		if node.Sync == SYNC_NONE || node.Sync == SYNC_INIT {
+		if node.Sync == SYNC_NONE {
 			continue
 		}
 		if idx > 0 {
@@ -275,14 +277,18 @@ func (r *LogicalReplicator) processMessage(xld pglogrepl.XLogData) (bool, error)
 		r.state.processMessages = true
 		r.state.currentTransactionLSN = logicalMsg.FinalLSN
 
-		err := r.Syncer.OnBegin(logicalMsg.Xid)
-		if err != nil {
-			return false, err
+		for _, pub := range r.Publishers {
+			err := pub.OnBegin(logicalMsg.Xid)
+			if err != nil {
+				return false, err
+			}
 		}
 	case *pglogrepl.CommitMessage:
-		err := r.Syncer.OnCommit()
-		if err != nil {
-			return false, err
+		for _, pub := range r.Publishers {
+			err := pub.OnCommit()
+			if err != nil {
+				return false, err
+			}
 		}
 		r.state.processMessages = false
 		return true, nil
@@ -343,8 +349,14 @@ func (r *LogicalReplicator) handleInsert(logicalMsg *pglogrepl.InsertMessageV2) 
 		return false, err
 	}
 
-	err = r.Syncer.OnInsert(data)
-	return false, err
+	for _, pub := range r.Publishers {
+		err = pub.OnInsert(data)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return false, nil
 }
 
 func (r *LogicalReplicator) handleUpdate(logicalMsg *pglogrepl.UpdateMessageV2) (bool, error) {
@@ -367,8 +379,14 @@ func (r *LogicalReplicator) handleUpdate(logicalMsg *pglogrepl.UpdateMessageV2) 
 		return false, err
 	}
 
-	err = r.Syncer.OnUpdate(data)
-	return false, err
+	for _, pub := range r.Publishers {
+		err = pub.OnUpdate(data)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return false, nil
 }
 
 func (r *LogicalReplicator) handleDelete(logicalMsg *pglogrepl.DeleteMessageV2) (bool, error) {
@@ -382,8 +400,14 @@ func (r *LogicalReplicator) handleDelete(logicalMsg *pglogrepl.DeleteMessageV2) 
 		Fields:    r.collectFields(logicalMsg.OldTuple.Columns, rel),
 	}
 
-	err := r.Syncer.OnDelete(data)
-	return false, err
+	for _, pub := range r.Publishers {
+		err := pub.OnDelete(data)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return false, nil
 }
 
 func (r *LogicalReplicator) collectFields(
@@ -431,10 +455,6 @@ func (r *LogicalReplicator) collectFields(
 
 func (r *LogicalReplicator) startFullReplication() error {
 	for table, node := range r.Schema.Nodes {
-		if node.Sync == SYNC_NONE {
-			continue
-		}
-
 		log.Println("Replicating table:", table)
 
 		rows, err := r.queryBuilder.GetRows(context.Background(), table, node.PrimaryKey)
@@ -453,9 +473,11 @@ func (r *LogicalReplicator) startFullReplication() error {
 			}
 		}
 
-		err = r.Syncer.TryFullReplication(rows)
-		if err != nil {
-			return err
+		for _, pub := range r.Publishers {
+			err := pub.TryFullReplication(rows)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

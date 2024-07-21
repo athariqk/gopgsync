@@ -1,4 +1,4 @@
-package syncers
+package publishers
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"log"
 
 	gopgsyncmodels "github.com/athariqk/gopgsync-models"
-	"github.com/athariqk/gopgsync/logrepl"
+	"github.com/athariqk/pgcdc/logrepl"
 	"github.com/meilisearch/meilisearch-go"
 )
 
@@ -20,6 +20,10 @@ func NewMeiliSyncer(meilisearchConfig meilisearch.ClientConfig) *MeiliSyncer {
 	return &MeiliSyncer{
 		client: meilisearch.NewClient(meilisearchConfig),
 	}
+}
+
+func (m *MeiliSyncer) String() string {
+	return "Meilisyncer"
 }
 
 func (m *MeiliSyncer) Init(schema *logrepl.Schema) error {
@@ -40,6 +44,10 @@ func (m *MeiliSyncer) OnBegin(xid uint32) error {
 }
 
 func (m *MeiliSyncer) OnInsert(data gopgsyncmodels.DmlData) error {
+	node := m.schema.Nodes[data.TableName]
+	if node.Sync != logrepl.SYNC_ALL {
+		return nil
+	}
 	m.currentTx.DmlCommandQueue().PushBack(&gopgsyncmodels.DmlCommand{
 		CmdType: gopgsyncmodels.INSERT,
 		Data:    data,
@@ -48,6 +56,10 @@ func (m *MeiliSyncer) OnInsert(data gopgsyncmodels.DmlData) error {
 }
 
 func (m *MeiliSyncer) OnUpdate(data gopgsyncmodels.DmlData) error {
+	node := m.schema.Nodes[data.TableName]
+	if node.Sync != logrepl.SYNC_ALL {
+		return nil
+	}
 	m.currentTx.DmlCommandQueue().PushBack(&gopgsyncmodels.DmlCommand{
 		CmdType: gopgsyncmodels.UPDATE,
 		Data:    data,
@@ -56,6 +68,10 @@ func (m *MeiliSyncer) OnUpdate(data gopgsyncmodels.DmlData) error {
 }
 
 func (m *MeiliSyncer) OnDelete(data gopgsyncmodels.DmlData) error {
+	node := m.schema.Nodes[data.TableName]
+	if node.Sync != logrepl.SYNC_ALL {
+		return nil
+	}
 	m.currentTx.DmlCommandQueue().PushBack(&gopgsyncmodels.DmlCommand{
 		CmdType: gopgsyncmodels.DELETE,
 		Data:    data,
@@ -90,11 +106,14 @@ func (m *MeiliSyncer) OnCommit() error {
 }
 
 func (m *MeiliSyncer) TryFullReplication(rows []*gopgsyncmodels.DmlData) error {
+	node := m.schema.Nodes[rows[0].TableName]
+	if node.Sync != logrepl.SYNC_ALL {
+		return nil
+	}
+
 	if m.client == nil {
 		return errors.New("meilisearch client is null")
 	}
-
-	node := m.schema.Nodes[rows[0].TableName]
 
 	taskInfo, err := m.client.CreateIndex(&meilisearch.IndexConfig{
 		Uid:        node.Index,

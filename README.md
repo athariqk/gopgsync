@@ -1,19 +1,19 @@
-# gopgsync
+# pgcdc
 
-Gopgsync is a PostgreSQL CDC for syncing data to any search engine sinks (currently meilisearch only) written in Go.
+This is a PostgreSQL CDC written in Go for propagating data to any "connectors" (currently NQS and Meilisearch).
 
 ## Usage
 
-Gopgsync requires a `schema.yaml` file to define how gopgsync should replicate the database.
+pgcdc requires a `schema.yaml` file to define how pgcdc should replicate the database.
 
 The typical `schema.yaml` file looks like the following:
 
 ```yaml
 nodes:
   table_1:
-    index: <search engine's index>
+    index: <Meilisearch's index>
     pk: <table's primary key>
-    sync: "none" | "init" | "all"
+    sync: "none" | "all"
     columns:
       - <column 1>
       - <column 2>
@@ -47,11 +47,11 @@ nodes:
 
 ### `nodes`
 
-An object node describing the search engine document. Root-level tables lives here.
+An object node describing the source table. Root-level tables lives here.
 
 ### `index`
 
-An optional search engine index (defaults to database name)
+An optional Meilisearch index (defaults to table name)
 
 ### `children`
 
@@ -59,15 +59,15 @@ An optional list of child nodes if any. This has the same structure as a parent 
 
 ### `sync`
 
-Specifies how the table should be synchronized.
+Specifies how the table should be synchronized (defaults to all).
 
-- `none`: don't sync this table altogether
-- `init`: only sync this table on start-up (for populating the search engine db)
-- `all`: sync this table using PostgreSQL's logical replication
+- `none`: only sync this table on full replication mode
+- `ignore`: publishes table's change data to NSQ but don't run Meilisearch synchronizer
+- `all`: also run the Meilisearch synchronizer
 
 ### `columns`
 
-An optional list of table columns to replicate (defaults to all).
+An optional list of table columns to capture (defaults to all).
 
 ### `relationship`
 
@@ -86,8 +86,8 @@ List of table-level transform operators.
 
 ### stream
 
-Run gopgysnc in logical streaming replication protocol, this is the default replication mode.
+Run pgcdc in logical streaming replication protocol, this is the default replication/capture mode.
 
 ### full
 
-Fully replicates the schema to the target sink. Useful when you're trying to add missing documents or want to replicate for the first time and need to "populate" the target database.
+Fully replicates/captures the schema to the connectors. Useful when you're trying to add missing documents or running CDC for the first time and need to "populate" the target data store.
