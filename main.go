@@ -36,15 +36,25 @@ func main() {
 		standbyMessageTimeout = 10
 	}
 
-	meiliSyncer := syncers.NewMeiliSyncer(
-		meilisearch.ClientConfig{
-			Host:   os.Getenv("MS_API_URL"),
-			APIKey: os.Getenv("MS_API_KEY"),
-		}) // TODO: more options
-
 	mode := logrepl.STREAM_MODE
 	if len(os.Args) > 1 && os.Args[1] == "full" {
 		mode = logrepl.POPULATE_MODE
+	}
+
+	var syncer logrepl.Syncer
+	wantSyncer := os.Getenv("SYNCER")
+	switch wantSyncer {
+	case "meilisyncer":
+		syncer = syncers.NewMeiliSyncer(meilisearch.ClientConfig{
+			Host:   os.Getenv("MS_API_URL"),
+			APIKey: os.Getenv("MS_API_KEY"),
+		})
+	case "publisher":
+		fallthrough
+	default:
+		syncer = syncers.NewPublisher(
+			os.Getenv("NSQD_INSTANCE_ADDRESS"),
+			os.Getenv("NSQD_INSTANCE_PORT"))
 	}
 
 	replicator := logrepl.LogicalReplicator{
@@ -53,7 +63,7 @@ func main() {
 		PublicationName:       pubName,
 		SlotName:              slotName,
 		StandbyMessageTimeout: time.Second * time.Duration(standbyMessageTimeout),
-		Syncer:                meiliSyncer,
+		Syncer:                syncer,
 		Schema:                logrepl.NewSchema("schema.yaml"),
 		Mode:                  mode,
 	}

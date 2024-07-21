@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/athariqk/gopgsync/model"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -36,29 +37,29 @@ func (q *QueryBuilder) GetRows(
 	context context.Context,
 	table string,
 	columns ...string,
-) ([]*DmlData, error) {
+) ([]*model.DmlData, error) {
 	query := q.Select(table, columns...)
 	result, err := q.pgConn.Exec(context, query).ReadAll()
 	if err != nil {
 		return nil, err
 	}
 
-	rows := []*DmlData{}
+	rows := []*model.DmlData{}
 	for _, row := range result[0].Rows {
-		fields := map[string]Field{}
+		fields := map[string]model.Field{}
 		for fieldIdx, field := range row {
 			fieldDesc := result[0].FieldDescriptions[fieldIdx]
 			decoded, err := q.decode(field, fieldDesc.DataTypeOID, fieldDesc.Format)
 			if err != nil {
 				return nil, err
 			}
-			fields[fmt.Sprintf("%s.%s", table, fieldDesc.Name)] = Field{
+			fields[fmt.Sprintf("%s.%s", table, fieldDesc.Name)] = model.Field{
 				Content:     decoded,
 				IsKey:       fieldDesc.Name == q.Schema.Nodes[table].PrimaryKey,
 				DataTypeOID: fieldDesc.DataTypeOID,
 			}
 		}
-		rows = append(rows, &DmlData{
+		rows = append(rows, &model.DmlData{
 			TableName: table,
 			Fields:    fields,
 		})
@@ -69,7 +70,7 @@ func (q *QueryBuilder) GetRows(
 
 func (q *QueryBuilder) ResolveRelationships(
 	context context.Context,
-	data DmlData,
+	data model.DmlData,
 ) error {
 	node := q.Schema.Nodes[data.TableName]
 	pk := q.Schema.GetPrimaryKey(data).Content.(int64)
@@ -108,7 +109,7 @@ func (q *QueryBuilder) ResolveRelationships(
 		}
 
 		fieldName := fmt.Sprintf("%s.%s", fieldTableName, fieldDesc.Name)
-		data.Fields[fieldName] = Field{
+		data.Fields[fieldName] = model.Field{
 			Content:     decoded,
 			IsKey:       data.Fields[fieldDesc.Name].IsKey,
 			DataTypeOID: fieldDesc.DataTypeOID,

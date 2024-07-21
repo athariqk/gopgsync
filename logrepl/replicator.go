@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/athariqk/gopgsync/model"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -328,7 +329,7 @@ func (r *LogicalReplicator) handleInsert(logicalMsg *pglogrepl.InsertMessageV2) 
 		log.Fatalf("unknown relation ID %d", logicalMsg.RelationID)
 	}
 
-	data := DmlData{
+	data := model.DmlData{
 		TableName: rel.RelationName,
 		Fields:    r.collectFields(logicalMsg.Tuple.Columns, rel),
 	}
@@ -352,7 +353,7 @@ func (r *LogicalReplicator) handleUpdate(logicalMsg *pglogrepl.UpdateMessageV2) 
 		log.Fatalf("unknown relation ID %d", logicalMsg.RelationID)
 	}
 
-	data := DmlData{
+	data := model.DmlData{
 		TableName: rel.RelationName,
 		Fields:    r.collectFields(logicalMsg.NewTuple.Columns, rel),
 	}
@@ -376,7 +377,7 @@ func (r *LogicalReplicator) handleDelete(logicalMsg *pglogrepl.DeleteMessageV2) 
 		log.Fatalf("unknown relation ID %d", logicalMsg.RelationID)
 	}
 
-	data := DmlData{
+	data := model.DmlData{
 		TableName: rel.RelationName,
 		Fields:    r.collectFields(logicalMsg.OldTuple.Columns, rel),
 	}
@@ -388,8 +389,8 @@ func (r *LogicalReplicator) handleDelete(logicalMsg *pglogrepl.DeleteMessageV2) 
 func (r *LogicalReplicator) collectFields(
 	columns []*pglogrepl.TupleDataColumn,
 	relation *pglogrepl.RelationMessageV2,
-) map[string]Field {
-	fields := map[string]Field{}
+) map[string]model.Field {
+	fields := map[string]model.Field{}
 	for idx, column := range columns {
 		columnName := relation.Columns[idx].Name
 
@@ -408,7 +409,7 @@ func (r *LogicalReplicator) collectFields(
 		fullyQualifiedColumnName := fmt.Sprintf("%s.%s", relation.RelationName, columnName)
 		switch column.DataType {
 		case 'n': // null
-			fields[fullyQualifiedColumnName] = Field{}
+			fields[fullyQualifiedColumnName] = model.Field{}
 		case 'u': // unchanged toast
 			// This TOAST value was not changed. TOAST values are not stored in the tuple,
 			// and logical replication doesn't want to spend a disk read to fetch its value for you.
@@ -417,7 +418,7 @@ func (r *LogicalReplicator) collectFields(
 			if err != nil {
 				log.Fatalln("error decoding column data:", err)
 			}
-			fields[fullyQualifiedColumnName] = Field{
+			fields[fullyQualifiedColumnName] = model.Field{
 				Content:     decoded,
 				IsKey:       isKey,
 				DataTypeOID: relation.Columns[idx].DataType,

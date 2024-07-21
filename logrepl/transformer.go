@@ -3,6 +3,8 @@ package logrepl
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/athariqk/gopgsync/model"
 )
 
 const (
@@ -20,7 +22,7 @@ func NewTransformer(schema *Schema) *Transformer {
 	}
 }
 
-func (t *Transformer) Transform(table string, node Node, data DmlData) error {
+func (t *Transformer) Transform(table string, node Node, data model.DmlData) error {
 	for transform, op := range node.Transform {
 		switch transform {
 		case TRANSFORM_RENAME:
@@ -33,7 +35,7 @@ func (t *Transformer) Transform(table string, node Node, data DmlData) error {
 	return nil
 }
 
-func (t *Transformer) rename(op interface{}, table string, data DmlData) {
+func (t *Transformer) rename(op interface{}, table string, data model.DmlData) {
 	iter := reflect.ValueOf(op).MapRange()
 	for iter.Next() {
 		original := fmt.Sprintf("%s.%s", table, iter.Key())

@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/athariqk/gopgsync/logrepl"
+	"github.com/athariqk/gopgsync/model"
 	"github.com/meilisearch/meilisearch-go"
 )
 
@@ -38,42 +39,41 @@ func (m *MeiliSyncer) OnBegin(xid uint32) error {
 	return nil
 }
 
-func (m *MeiliSyncer) OnInsert(data logrepl.DmlData) error {
-	m.currentTx.DmlCommandQueue().PushBack(&logrepl.DmlCommand{
-		CmdType: logrepl.INSERT,
-		Data:    data,
-	})
-
-	return nil
-}
-
-func (m *MeiliSyncer) OnUpdate(data logrepl.DmlData) error {
-	m.currentTx.DmlCommandQueue().PushBack(&logrepl.DmlCommand{
-		CmdType: logrepl.UPDATE,
+func (m *MeiliSyncer) OnInsert(data model.DmlData) error {
+	m.currentTx.DmlCommandQueue().PushBack(&model.DmlCommand{
+		CmdType: model.INSERT,
 		Data:    data,
 	})
 	return nil
 }
 
-func (m *MeiliSyncer) OnDelete(data logrepl.DmlData) error {
-	m.currentTx.DmlCommandQueue().PushBack(&logrepl.DmlCommand{
-		CmdType: logrepl.DELETE,
+func (m *MeiliSyncer) OnUpdate(data model.DmlData) error {
+	m.currentTx.DmlCommandQueue().PushBack(&model.DmlCommand{
+		CmdType: model.UPDATE,
+		Data:    data,
+	})
+	return nil
+}
+
+func (m *MeiliSyncer) OnDelete(data model.DmlData) error {
+	m.currentTx.DmlCommandQueue().PushBack(&model.DmlCommand{
+		CmdType: model.DELETE,
 		Data:    data,
 	})
 	return nil
 }
 
 func (m *MeiliSyncer) OnCommit() error {
-	var batch []*logrepl.DmlCommand
+	var batch []*model.DmlCommand
 	for m.currentTx.DmlCommandQueue().Len() > 0 {
 		e := m.currentTx.DmlCommandQueue().Front()
-		cmd, err := logrepl.CastToDmlCmd(e)
+		cmd, err := model.CastToDmlCmd(e)
 		if err != nil {
 			return err
 		}
 
 		batch = append(batch, cmd)
-		nextCmd, _ := logrepl.CastToDmlCmd(e.Next())
+		nextCmd, _ := model.CastToDmlCmd(e.Next())
 		if nextCmd == nil || nextCmd.CmdType != cmd.CmdType {
 			err = m.handleDmlCommands(batch)
 			if err != nil {
@@ -89,7 +89,7 @@ func (m *MeiliSyncer) OnCommit() error {
 	return nil
 }
 
-func (m *MeiliSyncer) TryFullReplication(rows []*logrepl.DmlData) error {
+func (m *MeiliSyncer) TryFullReplication(rows []*model.DmlData) error {
 	if m.client == nil {
 		return errors.New("meilisearch client is null")
 	}
@@ -109,9 +109,9 @@ func (m *MeiliSyncer) TryFullReplication(rows []*logrepl.DmlData) error {
 		return err
 	}
 
-	replicateRows := map[int64]map[string]logrepl.Field{}
+	replicateRows := map[int64]map[string]model.Field{}
 	for _, row := range rows {
-		flattened := map[string]logrepl.Field{}
+		flattened := map[string]model.Field{}
 		for name, field := range row.Fields {
 			flattened[name] = field
 		}
@@ -156,7 +156,7 @@ func (m *MeiliSyncer) TryFullReplication(rows []*logrepl.DmlData) error {
 
 	// TODO: batching and concurrency
 	for _, replicateRow := range replicateRows {
-		err = m.OnInsert(logrepl.DmlData{
+		err = m.OnInsert(model.DmlData{
 			TableName: rows[0].TableName,
 			Fields:    replicateRow,
 		})
@@ -173,7 +173,7 @@ func (m *MeiliSyncer) TryFullReplication(rows []*logrepl.DmlData) error {
 	return nil
 }
 
-func (m *MeiliSyncer) handleDmlCommands(batch []*logrepl.DmlCommand) error {
+func (m *MeiliSyncer) handleDmlCommands(batch []*model.DmlCommand) error {
 	if m.client == nil {
 		log.Fatal("[MeiliSyncer] Meilisearch client is null")
 	}
@@ -185,10 +185,10 @@ func (m *MeiliSyncer) handleDmlCommands(batch []*logrepl.DmlCommand) error {
 	table := m.schema.Nodes[batch[0].Data.TableName]
 
 	switch batch[0].CmdType {
-	case logrepl.INSERT:
+	case model.INSERT:
 		var documents []*map[string]interface{}
 		for _, cmd := range batch {
-			columns := logrepl.Flatten(cmd.Data.Fields, false)
+			columns := model.Flatten(cmd.Data.Fields, false)
 			documents = append(documents, &columns)
 		}
 
@@ -199,10 +199,10 @@ func (m *MeiliSyncer) handleDmlCommands(batch []*logrepl.DmlCommand) error {
 		for _, resp := range resps {
 			log.Printf("[MeiliSyncer] Batched Task UID: %v of Type: %s status: %s", resp.TaskUID, resp.Type, resp.Status)
 		}
-	case logrepl.UPDATE:
+	case model.UPDATE:
 		var documents []*map[string]interface{}
 		for _, cmd := range batch {
-			columns := logrepl.Flatten(cmd.Data.Fields, false)
+			columns := model.Flatten(cmd.Data.Fields, false)
 			documents = append(documents, &columns)
 		}
 
@@ -213,10 +213,10 @@ func (m *MeiliSyncer) handleDmlCommands(batch []*logrepl.DmlCommand) error {
 		for _, resp := range resps {
 			log.Printf("[MeiliSyncer] Batched Task UID: %v of Type: %s status: %s", resp.TaskUID, resp.Type, resp.Status)
 		}
-	case logrepl.DELETE:
+	case model.DELETE:
 		var refNumbers []string
 		for _, x := range batch {
-			keys := logrepl.Flatten(x.Data.Fields, true)
+			keys := model.Flatten(x.Data.Fields, true)
 			refNumbers = append(refNumbers, fmt.Sprintf("%v", keys[table.PrimaryKey]))
 		}
 
