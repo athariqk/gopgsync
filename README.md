@@ -7,6 +7,7 @@ Gopgsync is a PostgreSQL CDC for syncing data to any search engine sinks (curren
 Gopgsync requires a `schema.yaml` file to define how gopgsync should replicate the database.
 
 The typical `schema.yaml` file looks like the following:
+
 ```yaml
 nodes:
   table_1:
@@ -59,6 +60,7 @@ An optional list of child nodes if any. This has the same structure as a parent 
 ### `sync`
 
 Specifies how the table should be synchronized.
+
 - `none`: don't sync this table altogether
 - `init`: only sync this table on start-up (for populating the search engine db)
 - `all`: sync this table using PostgreSQL's logical replication
@@ -70,12 +72,14 @@ An optional list of table columns to replicate (defaults to all).
 ### `relationship`
 
 Describes the relationship between parent and child.
+
 - `type`: type can be `one_to_one` or `one_to_many` depending on the relationship type between parent and child
 - `fk`: specifies the foreign keys of the relationship
 
 ### `transform`
 
 List of table-level transform operators.
+
 - `rename`: renames `old_column` name to the specified `new_column` name
 
 ## Command-line Arguments
@@ -86,4 +90,4 @@ Run gopgysnc in logical streaming replication protocol, this is the default repl
 
 ### full
 
-Fully replicates the schema to the target sink. Useful when you're trying to replicate for the first time and need to "populate" the target database.
+Fully replicates the schema to the target sink. Useful when you're trying to add missing documents or want to replicate for the first time and need to "populate" the target database.
