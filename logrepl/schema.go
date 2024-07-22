@@ -18,23 +18,22 @@ type Relationship struct {
 	} `yaml:"fk"`
 }
 
-type SyncMode string
+type CaptureMode string
 
 const (
-	SYNC_NONE SyncMode = "none"
-	SYNC_ALL  SyncMode = "all"
+	CAPTURE_NONE CaptureMode = "none"
+	CAPTURE_ALL  CaptureMode = "all"
 )
 
 type Node struct {
 	Relationship Relationship
 	Namespace    string
-	Index        string
 	PrimaryKey   string `yaml:"pk"`
 	Columns      []string
 	Transform    map[string]interface{}
 	Children     map[string]Node
 	Parent       *Node
-	Sync         SyncMode
+	Capture      CaptureMode
 }
 
 type Schema struct {
@@ -64,14 +63,11 @@ func (q *Schema) GetPrimaryKey(data pgcdcmodels.Row) pgcdcmodels.Field {
 
 func (s *Schema) init(nodes map[string]Node) {
 	for name, node := range nodes {
-		if node.Sync == "" {
-			node.Sync = SYNC_ALL
+		if node.Capture == "" {
+			node.Capture = CAPTURE_ALL
 		}
 		if node.Namespace == "" {
 			node.Namespace = "public"
-		}
-		if node.Index == "" {
-			node.Index = name
 		}
 		if node.PrimaryKey == "" {
 			node.PrimaryKey = "id"

@@ -9,7 +9,6 @@ import (
 	"github.com/athariqk/pgcdc/logrepl"
 	"github.com/athariqk/pgcdc/publishers"
 	"github.com/joho/godotenv"
-	"github.com/meilisearch/meilisearch-go"
 )
 
 func main() {
@@ -42,12 +41,10 @@ func main() {
 	}
 
 	pubs := []logrepl.Publisher{
-		publishers.NewMeiliSyncer(meilisearch.ClientConfig{
-			Host:   os.Getenv("MS_API_URL"),
-			APIKey: os.Getenv("MS_API_KEY")}),
 		publishers.NewNsqPublisher(
 			os.Getenv("NSQD_INSTANCE_ADDRESS"),
-			os.Getenv("NSQD_INSTANCE_PORT")),
+			os.Getenv("NSQD_INSTANCE_PORT"),
+			os.Getenv("NSQ_TOPIC")),
 	}
 
 	replicator := logrepl.LogicalReplicator{

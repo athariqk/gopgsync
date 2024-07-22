@@ -3,7 +3,6 @@ package publishers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 
 	pgcdcmodels "github.com/athariqk/pgcdc-models"
 	"github.com/athariqk/pgcdc/logrepl"
@@ -11,14 +10,16 @@ import (
 )
 
 type NsqPublisher struct {
-	producer  *nsq.Producer
 	socket    string
+	topic     string
+	producer  *nsq.Producer
 	currentTx *logrepl.Transaction
 }
 
-func NewNsqPublisher(address string, port string) *NsqPublisher {
+func NewNsqPublisher(address string, port string, topic string) *NsqPublisher {
 	return &NsqPublisher{
 		socket: fmt.Sprintf("%s:%s", address, port),
+		topic:  topic,
 	}
 }
 
@@ -39,24 +40,25 @@ func (p *NsqPublisher) Init(schema *logrepl.Schema) error {
 }
 
 func (p *NsqPublisher) TryFullReplication(rows []*pgcdcmodels.Row) error {
-	commands := []*pgcdcmodels.DmlCommand{}
-
 	for _, row := range rows {
-		commands = append(commands, &pgcdcmodels.DmlCommand{
-			CmdType: pgcdcmodels.INSERT,
-			Data:    *row,
+		json, err := json.Marshal(pgcdcmodels.ReplicationMessage{
+			ReplicationFlag: pgcdcmodels.FULL_REPLICATION,
+			Command: &pgcdcmodels.DmlCommand{
+				CmdType: pgcdcmodels.INSERT,
+				Data:    *row,
+			},
 		})
+		if err != nil {
+			return err
+		}
+
+		err = p.producer.Publish(p.topic, json)
+		if err != nil {
+			return err
+		}
 	}
 
-	json, err := json.Marshal(pgcdcmodels.ReplicationMessage{
-		TxFlag:   pgcdcmodels.FULL_REPLICATION,
-		Commands: commands,
-	})
-	if err != nil {
-		return err
-	}
-
-	return p.producer.Publish("replication", json)
+	return nil
 }
 
 func (p *NsqPublisher) OnBegin(xid uint32) error {
@@ -89,7 +91,6 @@ func (p *NsqPublisher) OnDelete(row pgcdcmodels.Row) error {
 }
 
 func (p *NsqPublisher) OnCommit() error {
-	var batch []*pgcdcmodels.DmlCommand
 	for p.currentTx.DmlCommandQueue().Len() > 0 {
 		e := p.currentTx.DmlCommandQueue().Front()
 		cmd, err := pgcdcmodels.CastToDmlCmd(e)
@@ -97,14 +98,17 @@ func (p *NsqPublisher) OnCommit() error {
 			return err
 		}
 
-		batch = append(batch, cmd)
-		nextCmd, _ := pgcdcmodels.CastToDmlCmd(e.Next())
-		if nextCmd == nil || nextCmd.CmdType != cmd.CmdType {
-			err = p.handleDmlCommands(batch)
-			if err != nil {
-				return err
-			}
-			batch = nil
+		json, err := json.Marshal(pgcdcmodels.ReplicationMessage{
+			ReplicationFlag: pgcdcmodels.STREAM_REPLICATION,
+			Command:         cmd,
+		})
+		if err != nil {
+			return err
+		}
+
+		err = p.producer.Publish(p.topic, json)
+		if err != nil {
+			return err
 		}
 
 		p.currentTx.DmlCommandQueue().Remove(e)
@@ -112,17 +116,4 @@ func (p *NsqPublisher) OnCommit() error {
 
 	p.currentTx = nil
 	return nil
-}
-
-func (p *NsqPublisher) handleDmlCommands(batch []*pgcdcmodels.DmlCommand) error {
-	json, err := json.Marshal(pgcdcmodels.ReplicationMessage{
-		TxFlag:   pgcdcmodels.COMMIT,
-		Commands: batch,
-	})
-	if err != nil {
-		return err
-	}
-
-	log.Println("Publishing", len(batch), "commands")
-	return p.producer.Publish("replication", json)
 }

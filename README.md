@@ -1,6 +1,13 @@
 # pgcdc
 
-This is a PostgreSQL CDC written in Go for propagating changeset to any "connectors" (currently NSQ and Meilisearch).
+This is a PostgreSQL CDC written in Go for propagating changeset to any "connectors" (currently NSQ).
+
+## Requirements
+
+Requires WAL level set to logical. In postgresql.conf file:
+```
+wal_level = logical
+```
 
 ## Usage
 
@@ -12,9 +19,8 @@ The typical `schema.yaml` file looks like the following:
 nodes:
   table_1:
     namespace: "table's schema name"
-    index: <Meilisearch's index>
     pk: <table's primary key>
-    sync: "none" | "ignore" | "all"
+    capture: "none" | "all"
     columns:
       - <column 1>
       - <column 2>
@@ -50,21 +56,16 @@ nodes:
 
 An object node describing the source table. Root-level tables lives here.
 
-### `index`
-
-An optional Meilisearch index (defaults to table name)
-
 ### `children`
 
 An optional list of child nodes if any. This has the same structure as a parent node. Also defines relationship.
 
-### `sync`
+### `capture`
 
-Specifies how the table should be synchronized (defaults to all).
+Specifies CDC behavior (defaults to all).
 
-- `none`: only sync this table on full replication mode
-- `ignore`: publishes table's change data to NSQ but don't run Meilisearch synchronizer
-- `all`: also run the Meilisearch synchronizer
+- `none`: only capture table in full replication mode
+- `all`: capture and propagate all changeset
 
 ### `columns`
 

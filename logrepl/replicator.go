@@ -120,7 +120,7 @@ func (r *LogicalReplicator) initPublication() error {
 	tableStr := strings.Builder{}
 	idx := 0
 	for table, node := range r.Schema.Nodes {
-		if node.Sync == SYNC_NONE {
+		if node.Capture == CAPTURE_NONE {
 			continue
 		}
 		if idx > 0 {
