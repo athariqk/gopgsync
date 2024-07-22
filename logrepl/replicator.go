@@ -335,8 +335,9 @@ func (r *LogicalReplicator) handleInsert(logicalMsg *pglogrepl.InsertMessageV2) 
 		log.Fatalf("unknown relation ID %d", logicalMsg.RelationID)
 	}
 
-	data := pgcdcmodels.DmlData{
-		TableName: rel.RelationName,
+	data := pgcdcmodels.Row{
+		Namespace: rel.Namespace,
+		RelName:   rel.RelationName,
 		Fields:    r.collectFields(logicalMsg.Tuple.Columns, rel),
 	}
 
@@ -344,7 +345,7 @@ func (r *LogicalReplicator) handleInsert(logicalMsg *pglogrepl.InsertMessageV2) 
 	if err != nil {
 		return false, err
 	}
-	err = r.transformer.Transform(rel.RelationName, r.Schema.Nodes[data.TableName], data)
+	err = r.transformer.Transform(rel.RelationName, r.Schema.Nodes[data.RelName], data)
 	if err != nil {
 		return false, err
 	}
@@ -365,8 +366,9 @@ func (r *LogicalReplicator) handleUpdate(logicalMsg *pglogrepl.UpdateMessageV2) 
 		log.Fatalf("unknown relation ID %d", logicalMsg.RelationID)
 	}
 
-	data := pgcdcmodels.DmlData{
-		TableName: rel.RelationName,
+	data := pgcdcmodels.Row{
+		Namespace: rel.Namespace,
+		RelName:   rel.RelationName,
 		Fields:    r.collectFields(logicalMsg.NewTuple.Columns, rel),
 	}
 
@@ -374,7 +376,7 @@ func (r *LogicalReplicator) handleUpdate(logicalMsg *pglogrepl.UpdateMessageV2) 
 	if err != nil {
 		return false, err
 	}
-	err = r.transformer.Transform(rel.RelationName, r.Schema.Nodes[data.TableName], data)
+	err = r.transformer.Transform(rel.RelationName, r.Schema.Nodes[data.RelName], data)
 	if err != nil {
 		return false, err
 	}
@@ -395,8 +397,9 @@ func (r *LogicalReplicator) handleDelete(logicalMsg *pglogrepl.DeleteMessageV2) 
 		log.Fatalf("unknown relation ID %d", logicalMsg.RelationID)
 	}
 
-	data := pgcdcmodels.DmlData{
-		TableName: rel.RelationName,
+	data := pgcdcmodels.Row{
+		Namespace: rel.Namespace,
+		RelName:   rel.RelationName,
 		Fields:    r.collectFields(logicalMsg.OldTuple.Columns, rel),
 	}
 
@@ -430,7 +433,7 @@ func (r *LogicalReplicator) collectFields(
 			continue
 		}
 
-		fullyQualifiedColumnName := fmt.Sprintf("%s.%s", relation.RelationName, columnName)
+		fullyQualifiedColumnName := fmt.Sprintf("%s.%s.%s", relation.Namespace, relation.RelationName, columnName)
 		switch column.DataType {
 		case 'n': // null
 			fields[fullyQualifiedColumnName] = pgcdcmodels.Field{}
@@ -575,7 +578,7 @@ func (r *LogicalReplicator) startStreaming() {
 
 			committed, err := r.processMessage(xld)
 			if err != nil {
-				log.Println("Error processing message:", err)
+				log.Fatalln("Error processing message:", err)
 			}
 
 			if committed {
@@ -583,7 +586,7 @@ func (r *LogicalReplicator) startStreaming() {
 				log.Printf("Writing LSN %s to file\n", r.state.lastWrittenLSN.String())
 				err := r.writeWALPosition(r.state.lastWrittenLSN)
 				if err != nil {
-					log.Println(err)
+					log.Fatalln(err)
 				}
 			}
 		}

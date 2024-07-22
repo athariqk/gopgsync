@@ -22,11 +22,11 @@ func NewTransformer(schema *Schema) *Transformer {
 	}
 }
 
-func (t *Transformer) Transform(table string, node Node, data pgcdcmodels.DmlData) error {
+func (t *Transformer) Transform(table string, node Node, data pgcdcmodels.Row) error {
 	for transform, op := range node.Transform {
 		switch transform {
 		case TRANSFORM_RENAME:
-			t.rename(op, table, data)
+			t.rename(op, node.Namespace, table, data)
 		}
 	}
 	for name, child := range node.Children {
@@ -35,11 +35,11 @@ func (t *Transformer) Transform(table string, node Node, data pgcdcmodels.DmlDat
 	return nil
 }
 
-func (t *Transformer) rename(op interface{}, table string, data pgcdcmodels.DmlData) {
+func (t *Transformer) rename(op interface{}, namespace string, table string, data pgcdcmodels.Row) {
 	iter := reflect.ValueOf(op).MapRange()
 	for iter.Next() {
-		original := fmt.Sprintf("%s.%s", table, iter.Key())
-		new := fmt.Sprintf("%s.%v", table, iter.Value())
+		original := fmt.Sprintf("%s.%s.%s", namespace, table, iter.Key())
+		new := fmt.Sprintf("%s.%s.%v", namespace, table, iter.Value())
 
 		temp, ok := data.Fields[original]
 		if ok {

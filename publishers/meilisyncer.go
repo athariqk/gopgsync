@@ -43,8 +43,8 @@ func (m *MeiliSyncer) OnBegin(xid uint32) error {
 	return nil
 }
 
-func (m *MeiliSyncer) OnInsert(data pgcdcmodels.DmlData) error {
-	node := m.schema.Nodes[data.TableName]
+func (m *MeiliSyncer) OnInsert(data pgcdcmodels.Row) error {
+	node := m.schema.Nodes[data.RelName]
 	if node.Sync != logrepl.SYNC_ALL {
 		return nil
 	}
@@ -55,8 +55,8 @@ func (m *MeiliSyncer) OnInsert(data pgcdcmodels.DmlData) error {
 	return nil
 }
 
-func (m *MeiliSyncer) OnUpdate(data pgcdcmodels.DmlData) error {
-	node := m.schema.Nodes[data.TableName]
+func (m *MeiliSyncer) OnUpdate(data pgcdcmodels.Row) error {
+	node := m.schema.Nodes[data.RelName]
 	if node.Sync != logrepl.SYNC_ALL {
 		return nil
 	}
@@ -67,8 +67,8 @@ func (m *MeiliSyncer) OnUpdate(data pgcdcmodels.DmlData) error {
 	return nil
 }
 
-func (m *MeiliSyncer) OnDelete(data pgcdcmodels.DmlData) error {
-	node := m.schema.Nodes[data.TableName]
+func (m *MeiliSyncer) OnDelete(data pgcdcmodels.Row) error {
+	node := m.schema.Nodes[data.RelName]
 	if node.Sync != logrepl.SYNC_ALL {
 		return nil
 	}
@@ -105,8 +105,8 @@ func (m *MeiliSyncer) OnCommit() error {
 	return nil
 }
 
-func (m *MeiliSyncer) TryFullReplication(rows []*pgcdcmodels.DmlData) error {
-	node := m.schema.Nodes[rows[0].TableName]
+func (m *MeiliSyncer) TryFullReplication(rows []*pgcdcmodels.Row) error {
+	node := m.schema.Nodes[rows[0].RelName]
 	if node.Sync != logrepl.SYNC_ALL {
 		return nil
 	}
@@ -175,8 +175,9 @@ func (m *MeiliSyncer) TryFullReplication(rows []*pgcdcmodels.DmlData) error {
 
 	// TODO: batching and concurrency
 	for _, replicateRow := range replicateRows {
-		err = m.OnInsert(pgcdcmodels.DmlData{
-			TableName: rows[0].TableName,
+		err = m.OnInsert(pgcdcmodels.Row{
+			Namespace: rows[0].Namespace,
+			RelName:   rows[0].RelName,
 			Fields:    replicateRow,
 		})
 		if err != nil {
@@ -201,7 +202,7 @@ func (m *MeiliSyncer) handleDmlCommands(batch []*pgcdcmodels.DmlCommand) error {
 		return nil
 	}
 
-	table := m.schema.Nodes[batch[0].Data.TableName]
+	table := m.schema.Nodes[batch[0].Data.RelName]
 
 	switch batch[0].CmdType {
 	case pgcdcmodels.INSERT:

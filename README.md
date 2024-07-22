@@ -1,6 +1,6 @@
 # pgcdc
 
-This is a PostgreSQL CDC written in Go for propagating data to any "connectors" (currently NQS and Meilisearch).
+This is a PostgreSQL CDC written in Go for propagating changeset to any "connectors" (currently NSQ and Meilisearch).
 
 ## Usage
 
@@ -11,9 +11,10 @@ The typical `schema.yaml` file looks like the following:
 ```yaml
 nodes:
   table_1:
+    namespace: "table's schema name"
     index: <Meilisearch's index>
     pk: <table's primary key>
-    sync: "none" | "all"
+    sync: "none" | "ignore" | "all"
     columns:
       - <column 1>
       - <column 2>
@@ -67,7 +68,7 @@ Specifies how the table should be synchronized (defaults to all).
 
 ### `columns`
 
-An optional list of table columns to capture (defaults to all).
+An optional list of table columns to capture (defaults to all). Note that the primary key will always be included even if it's not specified in the list.
 
 ### `relationship`
 

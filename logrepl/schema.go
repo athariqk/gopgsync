@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	pgcdcmodels "github.com/athariqk/pgcdc-models"
 	"gopkg.in/yaml.v3"
@@ -26,6 +27,7 @@ const (
 
 type Node struct {
 	Relationship Relationship
+	Namespace    string
 	Index        string
 	PrimaryKey   string `yaml:"pk"`
 	Columns      []string
@@ -56,14 +58,17 @@ func NewSchema(filePath string) *Schema {
 	return schema
 }
 
-func (q *Schema) GetPrimaryKey(data pgcdcmodels.DmlData) pgcdcmodels.Field {
-	return data.Fields[fmt.Sprintf("%s.%s", data.TableName, q.Nodes[data.TableName].PrimaryKey)]
+func (q *Schema) GetPrimaryKey(data pgcdcmodels.Row) pgcdcmodels.Field {
+	return data.Fields[fmt.Sprintf("%s.%s.%s", data.Namespace, data.RelName, q.Nodes[data.RelName].PrimaryKey)]
 }
 
 func (s *Schema) init(nodes map[string]Node) {
 	for name, node := range nodes {
 		if node.Sync == "" {
 			node.Sync = SYNC_ALL
+		}
+		if node.Namespace == "" {
+			node.Namespace = "public"
 		}
 		if node.Index == "" {
 			node.Index = name
@@ -76,6 +81,12 @@ func (s *Schema) init(nodes map[string]Node) {
 		}
 		if node.Relationship.ForeignKey.Parent == "" {
 			node.Relationship.ForeignKey.Parent = fmt.Sprintf("%s_id", name)
+		}
+
+		for i, column := range node.Columns {
+			if len(strings.Split(column, ".")) < 3 {
+				node.Columns[i] = fmt.Sprintf("%s.%s.%s", node.Namespace, name, column)
+			}
 		}
 
 		nodes[name] = node

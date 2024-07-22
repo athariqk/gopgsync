@@ -35,16 +35,17 @@ func NewQueryBuilder(pgConnectionString string, schema *Schema) *QueryBuilder {
 
 func (q *QueryBuilder) GetRows(
 	context context.Context,
+	namespace string,
 	table string,
 	columns ...string,
-) ([]*pgcdcmodels.DmlData, error) {
+) ([]*pgcdcmodels.Row, error) {
 	query := q.Select(table, columns...)
 	result, err := q.pgConn.Exec(context, query).ReadAll()
 	if err != nil {
 		return nil, err
 	}
 
-	rows := []*pgcdcmodels.DmlData{}
+	rows := []*pgcdcmodels.Row{}
 	for _, row := range result[0].Rows {
 		fields := map[string]pgcdcmodels.Field{}
 		for fieldIdx, field := range row {
@@ -53,14 +54,15 @@ func (q *QueryBuilder) GetRows(
 			if err != nil {
 				return nil, err
 			}
-			fields[fmt.Sprintf("%s.%s", table, fieldDesc.Name)] = pgcdcmodels.Field{
+			fields[fmt.Sprintf("%s.%s.%s", namespace, table, fieldDesc.Name)] = pgcdcmodels.Field{
 				Content:     decoded,
 				IsKey:       fieldDesc.Name == q.Schema.Nodes[table].PrimaryKey,
 				DataTypeOID: fieldDesc.DataTypeOID,
 			}
 		}
-		rows = append(rows, &pgcdcmodels.DmlData{
-			TableName: table,
+		rows = append(rows, &pgcdcmodels.Row{
+			Namespace: namespace,
+			RelName:   table,
 			Fields:    fields,
 		})
 	}
@@ -70,11 +72,13 @@ func (q *QueryBuilder) GetRows(
 
 func (q *QueryBuilder) ResolveRelationships(
 	context context.Context,
-	data pgcdcmodels.DmlData,
+	data pgcdcmodels.Row,
 ) error {
-	node := q.Schema.Nodes[data.TableName]
+	node := q.Schema.Nodes[data.RelName]
 	pk := q.Schema.GetPrimaryKey(data).Content.(int64)
-	query := q.SelectRowIncludeReferences(data.TableName, pk, node.Columns...)
+	query := q.SelectRowIncludeReferences(data.RelName, pk, node.Columns...)
+
+	log.Println(query)
 
 	results, err := q.pgConn.Exec(context, query).ReadAll()
 	if err != nil {
@@ -108,7 +112,7 @@ func (q *QueryBuilder) ResolveRelationships(
 			return err
 		}
 
-		fieldName := fmt.Sprintf("%s.%s", fieldTableName, fieldDesc.Name)
+		fieldName := fmt.Sprintf("%s.%s.%s", data.Namespace, fieldTableName, fieldDesc.Name)
 		data.Fields[fieldName] = pgcdcmodels.Field{
 			Content:     decoded,
 			IsKey:       data.Fields[fieldDesc.Name].IsKey,
@@ -139,43 +143,44 @@ func (q *QueryBuilder) Select(table string, columns ...string) string {
 	return query.String()
 }
 
-func (q *QueryBuilder) SelectWithRelationships(table string, columns ...string) string {
+func (q *QueryBuilder) SelectWithRelationships(namespace string, table string, columns ...string) string {
 	query := strings.Builder{}
 
 	node := q.Schema.Nodes[table]
-	columns = append(columns, q.ListChildColumns(table, node)...)
+	columns = append(columns, q.ListChildColumns(namespace, table, node)...)
 	query.WriteString(q.Select(table, columns...))
 	query.WriteString(" ")
-	query.WriteString(q.JoinChildren(table, node))
+	query.WriteString(q.JoinChildren(namespace, table, node))
 
 	return query.String()
 }
 
 func (q *QueryBuilder) SelectRowIncludeReferences(table string, id int64, columns ...string) string {
-
+	node := q.Schema.Nodes[table]
 	query := strings.Builder{}
 
-	query.WriteString(q.SelectWithRelationships(table, columns...))
-	query.WriteString(fmt.Sprintf(" WHERE %s.%s = %v ",
+	query.WriteString(q.SelectWithRelationships(node.Namespace, table, columns...))
+	query.WriteString(fmt.Sprintf(" WHERE %s.%s.%s = %v ",
+		node.Namespace,
 		table,
-		q.Schema.Nodes[table].PrimaryKey,
+		node.PrimaryKey,
 		id))
 
 	return query.String()
 }
 
-func (q *QueryBuilder) ListChildColumns(table string, node Node) []string {
+func (q *QueryBuilder) ListChildColumns(namespace string, table string, node Node) []string {
 	columns := []string{}
 
 	for childTable, childNode := range node.Children {
 		columns = append(columns, childNode.Columns...)
-		columns = append(columns, q.ListChildColumns(childTable, childNode)...)
+		columns = append(columns, q.ListChildColumns(childNode.Namespace, childTable, childNode)...)
 	}
 
 	return columns
 }
 
-func (q *QueryBuilder) JoinChildren(table string, node Node) string {
+func (q *QueryBuilder) JoinChildren(namespace string, table string, node Node) string {
 	query := strings.Builder{}
 	idx := 0
 	for name, node := range node.Children {
@@ -187,14 +192,16 @@ func (q *QueryBuilder) JoinChildren(table string, node Node) string {
 			query.WriteString(" ")
 		}
 
-		query.WriteString(fmt.Sprintf("JOIN %s ON %s.%s = %s.%s",
+		query.WriteString(fmt.Sprintf("JOIN %s ON %s.%s.%s = %s.%s.%s",
 			name,
+			namespace,
 			table,
 			node.Relationship.ForeignKey.Parent,
+			node.Namespace,
 			name,
 			node.Relationship.ForeignKey.Child))
 
-		query.WriteString(q.JoinChildren(name, node))
+		query.WriteString(q.JoinChildren(namespace, name, node))
 		idx++
 	}
 

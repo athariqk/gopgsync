@@ -38,7 +38,7 @@ func (p *NsqPublisher) Init(schema *logrepl.Schema) error {
 	return nil
 }
 
-func (p *NsqPublisher) TryFullReplication(rows []*pgcdcmodels.DmlData) error {
+func (p *NsqPublisher) TryFullReplication(rows []*pgcdcmodels.Row) error {
 	commands := []*pgcdcmodels.DmlCommand{}
 
 	for _, row := range rows {
@@ -64,26 +64,26 @@ func (p *NsqPublisher) OnBegin(xid uint32) error {
 	return nil
 }
 
-func (p *NsqPublisher) OnInsert(data pgcdcmodels.DmlData) error {
+func (p *NsqPublisher) OnInsert(row pgcdcmodels.Row) error {
 	p.currentTx.DmlCommandQueue().PushBack(&pgcdcmodels.DmlCommand{
 		CmdType: pgcdcmodels.INSERT,
-		Data:    data,
+		Data:    row,
 	})
 	return nil
 }
 
-func (p *NsqPublisher) OnUpdate(data pgcdcmodels.DmlData) error {
+func (p *NsqPublisher) OnUpdate(row pgcdcmodels.Row) error {
 	p.currentTx.DmlCommandQueue().PushBack(&pgcdcmodels.DmlCommand{
 		CmdType: pgcdcmodels.UPDATE,
-		Data:    data,
+		Data:    row,
 	})
 	return nil
 }
 
-func (p *NsqPublisher) OnDelete(data pgcdcmodels.DmlData) error {
+func (p *NsqPublisher) OnDelete(row pgcdcmodels.Row) error {
 	p.currentTx.DmlCommandQueue().PushBack(&pgcdcmodels.DmlCommand{
 		CmdType: pgcdcmodels.DELETE,
-		Data:    data,
+		Data:    row,
 	})
 	return nil
 }
