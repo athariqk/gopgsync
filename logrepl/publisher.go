@@ -1,14 +1,14 @@
 package logrepl
 
-import gopgsyncmodels "github.com/athariqk/gopgsync-models"
+import pgcdcmodels "github.com/athariqk/pgcdc-models"
 
 type Publisher interface {
 	String() string
 	Init(schema *Schema) error
-	TryFullReplication(rows []*gopgsyncmodels.DmlData) error
+	TryFullReplication(rows []*pgcdcmodels.DmlData) error
 	OnBegin(xid uint32) error
-	OnInsert(data gopgsyncmodels.DmlData) error
-	OnUpdate(data gopgsyncmodels.DmlData) error
-	OnDelete(data gopgsyncmodels.DmlData) error
+	OnInsert(data pgcdcmodels.DmlData) error
+	OnUpdate(data pgcdcmodels.DmlData) error
+	OnDelete(data pgcdcmodels.DmlData) error
 	OnCommit() error
 }

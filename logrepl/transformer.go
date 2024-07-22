@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	gopgsyncmodels "github.com/athariqk/gopgsync-models"
+	pgcdcmodels "github.com/athariqk/pgcdc-models"
 )
 
 const (
@@ -22,7 +22,7 @@ func NewTransformer(schema *Schema) *Transformer {
 	}
 }
 
-func (t *Transformer) Transform(table string, node Node, data gopgsyncmodels.DmlData) error {
+func (t *Transformer) Transform(table string, node Node, data pgcdcmodels.DmlData) error {
 	for transform, op := range node.Transform {
 		switch transform {
 		case TRANSFORM_RENAME:
@@ -35,7 +35,7 @@ func (t *Transformer) Transform(table string, node Node, data gopgsyncmodels.Dml
 	return nil
 }
 
-func (t *Transformer) rename(op interface{}, table string, data gopgsyncmodels.DmlData) {
+func (t *Transformer) rename(op interface{}, table string, data pgcdcmodels.DmlData) {
 	iter := reflect.ValueOf(op).MapRange()
 	for iter.Next() {
 		original := fmt.Sprintf("%s.%s", table, iter.Key())

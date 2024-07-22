@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	gopgsyncmodel "github.com/athariqk/gopgsync-models"
+	pgcdcmodels "github.com/athariqk/pgcdc-models"
 	"gopkg.in/yaml.v3"
 )
 
@@ -56,7 +56,7 @@ func NewSchema(filePath string) *Schema {
 	return schema
 }
 
-func (q *Schema) GetPrimaryKey(data gopgsyncmodel.DmlData) gopgsyncmodel.Field {
+func (q *Schema) GetPrimaryKey(data pgcdcmodels.DmlData) pgcdcmodels.Field {
 	return data.Fields[fmt.Sprintf("%s.%s", data.TableName, q.Nodes[data.TableName].PrimaryKey)]
 }
 

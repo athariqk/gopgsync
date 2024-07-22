@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	gopgsyncmodel "github.com/athariqk/gopgsync-models"
+	pgcdcmodels "github.com/athariqk/pgcdc-models"
 	"github.com/athariqk/pgcdc/logrepl"
 	"github.com/nsqio/go-nsq"
 )
@@ -38,18 +38,18 @@ func (p *NsqPublisher) Init(schema *logrepl.Schema) error {
 	return nil
 }
 
-func (p *NsqPublisher) TryFullReplication(rows []*gopgsyncmodel.DmlData) error {
-	commands := []*gopgsyncmodel.DmlCommand{}
+func (p *NsqPublisher) TryFullReplication(rows []*pgcdcmodels.DmlData) error {
+	commands := []*pgcdcmodels.DmlCommand{}
 
 	for _, row := range rows {
-		commands = append(commands, &gopgsyncmodel.DmlCommand{
-			CmdType: gopgsyncmodel.INSERT,
+		commands = append(commands, &pgcdcmodels.DmlCommand{
+			CmdType: pgcdcmodels.INSERT,
 			Data:    *row,
 		})
 	}
 
-	json, err := json.Marshal(gopgsyncmodel.ReplicationMessage{
-		TxFlag:   gopgsyncmodel.FULL_REPLICATION,
+	json, err := json.Marshal(pgcdcmodels.ReplicationMessage{
+		TxFlag:   pgcdcmodels.FULL_REPLICATION,
 		Commands: commands,
 	})
 	if err != nil {
@@ -64,41 +64,41 @@ func (p *NsqPublisher) OnBegin(xid uint32) error {
 	return nil
 }
 
-func (p *NsqPublisher) OnInsert(data gopgsyncmodel.DmlData) error {
-	p.currentTx.DmlCommandQueue().PushBack(&gopgsyncmodel.DmlCommand{
-		CmdType: gopgsyncmodel.INSERT,
+func (p *NsqPublisher) OnInsert(data pgcdcmodels.DmlData) error {
+	p.currentTx.DmlCommandQueue().PushBack(&pgcdcmodels.DmlCommand{
+		CmdType: pgcdcmodels.INSERT,
 		Data:    data,
 	})
 	return nil
 }
 
-func (p *NsqPublisher) OnUpdate(data gopgsyncmodel.DmlData) error {
-	p.currentTx.DmlCommandQueue().PushBack(&gopgsyncmodel.DmlCommand{
-		CmdType: gopgsyncmodel.UPDATE,
+func (p *NsqPublisher) OnUpdate(data pgcdcmodels.DmlData) error {
+	p.currentTx.DmlCommandQueue().PushBack(&pgcdcmodels.DmlCommand{
+		CmdType: pgcdcmodels.UPDATE,
 		Data:    data,
 	})
 	return nil
 }
 
-func (p *NsqPublisher) OnDelete(data gopgsyncmodel.DmlData) error {
-	p.currentTx.DmlCommandQueue().PushBack(&gopgsyncmodel.DmlCommand{
-		CmdType: gopgsyncmodel.DELETE,
+func (p *NsqPublisher) OnDelete(data pgcdcmodels.DmlData) error {
+	p.currentTx.DmlCommandQueue().PushBack(&pgcdcmodels.DmlCommand{
+		CmdType: pgcdcmodels.DELETE,
 		Data:    data,
 	})
 	return nil
 }
 
 func (p *NsqPublisher) OnCommit() error {
-	var batch []*gopgsyncmodel.DmlCommand
+	var batch []*pgcdcmodels.DmlCommand
 	for p.currentTx.DmlCommandQueue().Len() > 0 {
 		e := p.currentTx.DmlCommandQueue().Front()
-		cmd, err := gopgsyncmodel.CastToDmlCmd(e)
+		cmd, err := pgcdcmodels.CastToDmlCmd(e)
 		if err != nil {
 			return err
 		}
 
 		batch = append(batch, cmd)
-		nextCmd, _ := gopgsyncmodel.CastToDmlCmd(e.Next())
+		nextCmd, _ := pgcdcmodels.CastToDmlCmd(e.Next())
 		if nextCmd == nil || nextCmd.CmdType != cmd.CmdType {
 			err = p.handleDmlCommands(batch)
 			if err != nil {
@@ -114,9 +114,9 @@ func (p *NsqPublisher) OnCommit() error {
 	return nil
 }
 
-func (p *NsqPublisher) handleDmlCommands(batch []*gopgsyncmodel.DmlCommand) error {
-	json, err := json.Marshal(gopgsyncmodel.ReplicationMessage{
-		TxFlag:   gopgsyncmodel.COMMIT,
+func (p *NsqPublisher) handleDmlCommands(batch []*pgcdcmodels.DmlCommand) error {
+	json, err := json.Marshal(pgcdcmodels.ReplicationMessage{
+		TxFlag:   pgcdcmodels.COMMIT,
 		Commands: batch,
 	})
 	if err != nil {

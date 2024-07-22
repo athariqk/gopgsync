@@ -3,7 +3,7 @@ module github.com/athariqk/pgcdc
 go 1.21.6
 
 require (
-	github.com/athariqk/gopgsync-models v0.1.0
+	github.com/athariqk/pgcdc-models v0.1.1
 	github.com/jackc/pglogrepl v0.0.0-20240307033717-828fbfe908e9
 	github.com/jackc/pgx/v5 v5.5.4
 	github.com/joho/godotenv v1.5.1
