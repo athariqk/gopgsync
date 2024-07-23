@@ -460,7 +460,7 @@ func (r *LogicalReplicator) startFullReplication() error {
 	for table, node := range r.Schema.Nodes {
 		log.Println("Replicating table:", table)
 
-		rows, err := r.queryBuilder.GetRows(context.Background(), table, node.PrimaryKey)
+		rows, err := r.queryBuilder.GetRows(context.Background(), node.Namespace, table, node.PrimaryKey)
 		if err != nil {
 			return fmt.Errorf("querying rows: %s", err.Error())
 		}
@@ -477,7 +477,7 @@ func (r *LogicalReplicator) startFullReplication() error {
 		}
 
 		for _, pub := range r.Publishers {
-			err := pub.TryFullReplication(rows)
+			err := pub.FullyReplicateTable(rows, len(r.Schema.Nodes))
 			if err != nil {
 				return err
 			}
@@ -530,7 +530,7 @@ func (r *LogicalReplicator) startStreaming() {
 			if err != nil {
 				log.Fatalln("SendStandbyStatusUpdate failed: ", err)
 			}
-			log.Printf("Sent Standby status message at %s\n", (r.state.lastWrittenLSN + 1).String())
+			// log.Printf("Sent Standby status message at %s\n", (r.state.lastWrittenLSN + 1).String())
 			r.state.nextStandbyMessageDeadline = time.Now().Add(r.StandbyMessageTimeout)
 		}
 
@@ -560,7 +560,7 @@ func (r *LogicalReplicator) startStreaming() {
 			if err != nil {
 				log.Fatalln("ParsePrimaryKeepaliveMessage failed: ", err)
 			}
-			log.Println("Primary Keepalive Message =>", "ServerWALEnd:", pkm.ServerWALEnd, "ServerTime:", pkm.ServerTime, "ReplyRequested:", pkm.ReplyRequested)
+			// log.Println("Primary Keepalive Message =>", "ServerWALEnd:", pkm.ServerWALEnd, "ServerTime:", pkm.ServerTime, "ReplyRequested:", pkm.ReplyRequested)
 			if pkm.ServerWALEnd > r.state.lastReceivedLSN {
 				r.state.lastReceivedLSN = pkm.ServerWALEnd
 			}

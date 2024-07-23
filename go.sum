@@ -1,9 +1,5 @@
-github.com/athariqk/pgcdc-models v0.1.2 h1:WXtVSCjqJx14u5Zu8CpdeGXmGcAhBozanxGYLORXXF0=
-github.com/athariqk/pgcdc-models v0.1.2/go.mod h1:bW44Jrf6kwB6pQDY8EkkjxaOJmVqwgIEFxHPdNOPxZE=
-github.com/athariqk/pgcdc-models v0.1.3 h1:BPg9C41EKeQaegJLPpqrp+kM7hsm+ZwaHJDHmCK5P4k=
-github.com/athariqk/pgcdc-models v0.1.3/go.mod h1:bW44Jrf6kwB6pQDY8EkkjxaOJmVqwgIEFxHPdNOPxZE=
-github.com/athariqk/pgcdc-models v0.1.4 h1:65wGpt/i2CtrQnWkmSr8egedQbahlQNU2l/tMlrW6yU=
-github.com/athariqk/pgcdc-models v0.1.4/go.mod h1:bW44Jrf6kwB6pQDY8EkkjxaOJmVqwgIEFxHPdNOPxZE=
+github.com/athariqk/pgcdc-models v0.1.7 h1:koyDl0QqE4sN8TY/7SAbdxtJUMbCYKp+ZopqgCWwDdI=
+github.com/athariqk/pgcdc-models v0.1.7/go.mod h1:bW44Jrf6kwB6pQDY8EkkjxaOJmVqwgIEFxHPdNOPxZE=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

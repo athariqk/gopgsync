@@ -25,11 +25,20 @@ const (
 	CAPTURE_ALL  CaptureMode = "all"
 )
 
+// This feature makes a LOT of assumptions on the database,
+// certain rules needs to be followed
+type Privacy struct {
+	Enabled          bool
+	Namespace        string
+	QuasiIdentifiers map[string]struct{} `yaml:"qi"`
+}
+
 type Node struct {
 	Relationship Relationship
 	Namespace    string
 	PrimaryKey   string `yaml:"pk"`
 	Columns      []string
+	Privacy      Privacy
 	Transform    map[string]interface{}
 	Children     map[string]Node
 	Parent       *Node

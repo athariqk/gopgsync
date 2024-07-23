@@ -39,7 +39,7 @@ func (q *QueryBuilder) GetRows(
 	table string,
 	columns ...string,
 ) ([]*pgcdcmodels.Row, error) {
-	query := q.Select(table, columns...)
+	query, _ := q.Select(table, columns...)
 	result, err := q.pgConn.Exec(context, query).ReadAll()
 	if err != nil {
 		return nil, err
@@ -77,8 +77,6 @@ func (q *QueryBuilder) ResolveRelationships(
 	node := q.Schema.Nodes[data.RelName]
 	pk := q.Schema.GetPrimaryKey(data).Content.(int64)
 	query := q.SelectRowIncludeReferences(data.RelName, pk, node.Columns...)
-
-	log.Println(query)
 
 	results, err := q.pgConn.Exec(context, query).ReadAll()
 	if err != nil {
@@ -123,24 +121,50 @@ func (q *QueryBuilder) ResolveRelationships(
 	return nil
 }
 
-func (q *QueryBuilder) Select(table string, columns ...string) string {
+func (q *QueryBuilder) Select(table string, columns ...string) (string, bool) {
+	node := q.Schema.Nodes[table]
+
 	query := strings.Builder{}
 
 	if len(columns) <= 0 {
 		log.Fatalln("No column specified")
 	}
 
+	hasQi := false
+
 	query.WriteString("SELECT ")
 	for idx, column := range columns {
 		if idx > 0 {
 			query.WriteString(", ")
 		}
-		query.WriteString(column)
+
+		columnName := column
+		splits := strings.Split(column, ".")
+		if len(splits) == 3 {
+			columnName = splits[2]
+		}
+
+		_, isQi := node.Privacy.QuasiIdentifiers[columnName]
+		if node.Privacy.Enabled && isQi {
+			if !hasQi {
+				hasQi = true
+			}
+			query.WriteString(fmt.Sprintf("%s_anon.%s", table, columnName))
+		} else {
+			query.WriteString(column)
+		}
 	}
 	query.WriteString(" FROM ")
 	query.WriteString(table)
 
-	return query.String()
+	if node.Privacy.Enabled && hasQi {
+		query.WriteString(" JOIN ")
+		query.WriteString(fmt.Sprintf("%s.%s %s_anon", node.Privacy.Namespace, table, table))
+		query.WriteString(" ON ")
+		query.WriteString(fmt.Sprintf("%s_anon.%s = %s.%s", table, node.PrimaryKey, table, node.PrimaryKey))
+	}
+
+	return query.String(), hasQi
 }
 
 func (q *QueryBuilder) SelectWithRelationships(namespace string, table string, columns ...string) string {
@@ -148,9 +172,10 @@ func (q *QueryBuilder) SelectWithRelationships(namespace string, table string, c
 
 	node := q.Schema.Nodes[table]
 	columns = append(columns, q.ListChildColumns(namespace, table, node)...)
-	query.WriteString(q.Select(table, columns...))
+	lhs, hasQi := q.Select(table, columns...)
+	query.WriteString(lhs)
 	query.WriteString(" ")
-	query.WriteString(q.JoinChildren(namespace, table, node))
+	query.WriteString(q.JoinChildren(hasQi, namespace, table, node))
 
 	return query.String()
 }
@@ -180,7 +205,7 @@ func (q *QueryBuilder) ListChildColumns(namespace string, table string, node Nod
 	return columns
 }
 
-func (q *QueryBuilder) JoinChildren(namespace string, table string, node Node) string {
+func (q *QueryBuilder) JoinChildren(hasQi bool, namespace string, table string, node Node) string {
 	query := strings.Builder{}
 	idx := 0
 	for name, node := range node.Children {
@@ -192,16 +217,22 @@ func (q *QueryBuilder) JoinChildren(namespace string, table string, node Node) s
 			query.WriteString(" ")
 		}
 
-		query.WriteString(fmt.Sprintf("JOIN %s ON %s.%s.%s = %s.%s.%s",
+		var againstTable string
+		if hasQi {
+			againstTable = fmt.Sprintf("%s_anon", table)
+		} else {
+			againstTable = fmt.Sprintf("%s.%s", namespace, table)
+		}
+
+		query.WriteString(fmt.Sprintf("LEFT JOIN %s ON %s.%s = %s.%s.%s",
 			name,
-			namespace,
-			table,
+			againstTable,
 			node.Relationship.ForeignKey.Parent,
 			node.Namespace,
 			name,
 			node.Relationship.ForeignKey.Child))
 
-		query.WriteString(q.JoinChildren(namespace, name, node))
+		query.WriteString(q.JoinChildren(hasQi, namespace, name, node))
 		idx++
 	}
 
@@ -209,6 +240,10 @@ func (q *QueryBuilder) JoinChildren(namespace string, table string, node Node) s
 }
 
 func (q *QueryBuilder) decode(data []byte, dataType uint32, format int16) (interface{}, error) {
+	if len(data) <= 0 || data == nil {
+		return nil, nil
+	}
+
 	if dt, ok := q.typeMap.TypeForOID(dataType); ok {
 		decoded, err := dt.Codec.DecodeValue(q.typeMap, dataType, format, data)
 		if err != nil {
