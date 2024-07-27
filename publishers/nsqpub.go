@@ -40,9 +40,10 @@ func (p *NsqPublisher) Init(schema *logrepl.Schema) error {
 }
 
 // Notes on the full replication protocol:
-//   - FULL_REPLICATION_NEW_ROWS will only contain namespace and relation name without row fields values
-//   - FULL_REPLICATION_NEW_ROWS will be sent every rowset change (iterating over another table rows)
-//   - FULL_REPLICATION_FINISHED will be sent when all rowsets have been published
+//   - FULL_REPLICATION_NEW_ROWS and FULL_REPLICATION_FINISHED will only contain namespace and
+//     relation name without row fields values
+//   - FULL_REPLICATION_NEW_ROWS will be sent every rowset change
+//   - FULL_REPLICATION_FINISHED will be sent after all rows in one rowset have been published
 func (p *NsqPublisher) FullyReplicateTable(rows []*pgcdcmodels.Row, totalTables int) error {
 	result, err := json.Marshal(pgcdcmodels.ReplicationMessage{
 		ReplicationFlag: pgcdcmodels.FULL_REPLICATION_NEW_ROWS,
