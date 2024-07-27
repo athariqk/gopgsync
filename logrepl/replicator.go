@@ -205,6 +205,9 @@ func (r *LogicalReplicator) getSlotInfo() *replicationSlot {
 	if len(result) <= 0 {
 		return nil
 	}
+	if len(result[0].Rows) <= 0 {
+		return nil
+	}
 
 	row := result[0].Rows[0]
 	fieldDesc := result[0].FieldDescriptions
