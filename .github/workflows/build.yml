@@ -48,6 +48,9 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      - name: Change directory
+        run: cd /home/runner/work/pgcdc/pgcdc/
+
       - name: Deploy artifacts
         run: ./deploy.sh
         env:
