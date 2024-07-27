@@ -202,6 +202,10 @@ func (r *LogicalReplicator) getSlotInfo() *replicationSlot {
 		log.Fatalln("Failed querying slot info:", err)
 	}
 
+	if len(result) <= 0 {
+		return nil
+	}
+
 	row := result[0].Rows[0]
 	fieldDesc := result[0].FieldDescriptions
 	if len(row) == 4 {
