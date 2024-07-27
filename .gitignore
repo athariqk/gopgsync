@@ -1,5 +1,6 @@
 .env.development
 /build
+/build_output
 schema.yaml
 progress
 .vscode
